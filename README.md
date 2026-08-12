@@ -6,25 +6,29 @@
 
 ---
 
-## Screenshots (app running)
+## Screenshots (mock traffic demo)
 
-Headless Freya renders of the live UI at 1400×920 — same components as `cargo run`.
+Headless Freya renders of the live UI at 1400×920, using **`app_demo()`** with realistic mock adapters, hero chart history, processes, and connections (Chrome, Cursor, Slack, etc.).
 
 ### Overview
 
-![Osman overview — network activity hero, sidebar nav, adapter table](docs/screenshots/osman-overview.png)
-
-### Settings (embedded About)
-
-![Osman settings — New Tower About panel with Tower Village splash](docs/screenshots/osman-settings.png)
-
-### About window
-
-![About Osman — dedicated window from App menu / tray](docs/screenshots/osman-about-window.png)
+![Osman overview — 8.1 MB/s total, hero chart + adapter sparklines](docs/screenshots/osman-overview.png)
 
 ### Connections
 
-![Osman connections view](docs/screenshots/osman-connections.png)
+![Osman connections — live rates per socket](docs/screenshots/osman-connections.png)
+
+### Processes
+
+![Osman processes — per-app traffic totals](docs/screenshots/osman-processes.png)
+
+### Settings (embedded About)
+
+![Osman settings — New Tower About panel](docs/screenshots/osman-settings.png)
+
+### About window
+
+![About Osman — dedicated window](docs/screenshots/osman-about-window.png)
 
 Regenerate after UI changes:
 

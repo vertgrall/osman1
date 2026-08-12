@@ -19,6 +19,7 @@ mod detail;
 mod lfo;
 mod macos_about_menu;
 mod menubar;
+mod mock_traffic;
 mod network;
 mod overview_ui;
 mod parse;
@@ -90,106 +91,138 @@ fn main() {
     ));
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AppBootstrap {
+    Live,
+    Demo,
+}
+
 fn app() -> Element {
-    let snapshot = use_state(NetworkSnapshot::default);
+    app_with_bootstrap(AppBootstrap::Live)
+}
+
+/// README / marketing screenshots — same UI with mock traffic pre-loaded.
+pub fn app_demo() -> Element {
+    app_with_bootstrap(AppBootstrap::Demo)
+}
+
+fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
+    let is_demo = bootstrap == AppBootstrap::Demo;
+    let demo_traffic = is_demo.then(mock_traffic::traffic_snapshot);
+    let demo_snapshot = is_demo.then(mock_traffic::network_snapshot);
+    let demo_rates = demo_traffic
+        .as_ref()
+        .map(|t| mock_traffic::live_rates(&t.connections));
+    let demo_started = is_demo.then(mock_traffic::demo_started_at);
+    let demo_traffic_for_system = demo_traffic.clone();
+    let demo_traffic_for_state = demo_traffic;
+
+    let snapshot = use_state(move || demo_snapshot.unwrap_or_default());
     let selected = use_state(|| None::<String>);
     let detail = use_state(|| None::<InterfaceDetail>);
     let anim_time = use_state(|| 0.0f64);
     let character_scopes = use_state(CharacterScopeBank::default);
-    let app_started = use_state(Instant::now);
+    let app_started = use_state(move || demo_started.unwrap_or_else(Instant::now));
     let app_section = use_state(|| AppSection::Overview);
-    let system_traffic = use_state(|| (Vec::<ProcessTraffic>::new(), Vec::<ConnectionDetail>::new()));
-    let connection_rates = use_state(Vec::<LiveConnectionRate>::new);
+    let system_traffic = use_state(move || {
+        demo_traffic_for_system
+            .as_ref()
+            .map(|t| (t.processes.clone(), t.connections.clone()))
+            .unwrap_or_default()
+    });
+    let connection_rates = use_state(move || demo_rates.unwrap_or_default());
     let rate_tracker = use_state(RateTracker::default);
     let time_window = use_state(TimeWindow::default);
     let character_timeline = use_state(CharacterTimeline::default);
     let alert_engine = use_state(|| AlertEngine::new());
     let list_filter = use_state(String::new);
     let chart_scales = use_state(ChartScaleBank::default);
-    let traffic_snapshot = use_state(TrafficSnapshot::default);
+    let traffic_snapshot = use_state(move || demo_traffic_for_state.unwrap_or_default());
     let selected_connection = use_state(|| None::<ConnectionDetail>);
 
-    use_future(move || {
-        let mut anim_time = anim_time;
-        let app_section = app_section;
-        let selected = selected;
-        async move {
-            let redraw = Platform::get().sender.clone();
-            let start = Instant::now();
-            loop {
-                Timer::after(Duration::from_millis(16)).await;
-                let section = *app_section.peek();
-                let detail_open = selected.peek().is_some();
-                if !section_needs_animation(section, detail_open) {
-                    continue;
+    if !is_demo {
+        use_future(move || {
+            let mut anim_time = anim_time;
+            let app_section = app_section;
+            let selected = selected;
+            async move {
+                let redraw = Platform::get().sender.clone();
+                let start = Instant::now();
+                loop {
+                    Timer::after(Duration::from_millis(16)).await;
+                    let section = *app_section.peek();
+                    let detail_open = selected.peek().is_some();
+                    if !section_needs_animation(section, detail_open) {
+                        continue;
+                    }
+                    *anim_time.write() = start.elapsed().as_secs_f64();
+                    redraw(UserEvent::RequestRedraw);
                 }
-                *anim_time.write() = start.elapsed().as_secs_f64();
-                redraw(UserEvent::RequestRedraw);
             }
-        }
-    });
+        });
 
-    use_future(move || {
-        let mut snapshot = snapshot;
-        let system_traffic = system_traffic;
-        let connection_rates = connection_rates;
-        let rate_tracker = rate_tracker;
-        let character_timeline = character_timeline;
-        let alert_engine = alert_engine;
-        let traffic_snapshot = traffic_snapshot;
-        async move {
-            let redraw = Platform::get().sender.clone();
-            let mut networks = Networks::new_with_refreshed_list();
-            let mut tracker = NetworkTracker::default();
-            loop {
-                Timer::after(POLL_INTERVAL).await;
-                let previous = snapshot.peek().clone();
-                let traffic = TrafficSnapshot::collect();
-                let connection_count = traffic.connection_count();
-                let mut next = tracker.sample(&mut networks, connection_count);
-                push_history(&mut next, &previous);
-                menubar::update_from_snapshot(&next);
-                *snapshot.write() = next.clone();
+        use_future(move || {
+            let mut snapshot = snapshot;
+            let system_traffic = system_traffic;
+            let connection_rates = connection_rates;
+            let rate_tracker = rate_tracker;
+            let character_timeline = character_timeline;
+            let alert_engine = alert_engine;
+            let traffic_snapshot = traffic_snapshot;
+            async move {
+                let redraw = Platform::get().sender.clone();
+                let mut networks = Networks::new_with_refreshed_list();
+                let mut tracker = NetworkTracker::default();
+                loop {
+                    Timer::after(POLL_INTERVAL).await;
+                    let previous = snapshot.peek().clone();
+                    let traffic = TrafficSnapshot::collect();
+                    let connection_count = traffic.connection_count();
+                    let mut next = tracker.sample(&mut networks, connection_count);
+                    push_history(&mut next, &previous);
+                    menubar::update_from_snapshot(&next);
+                    *snapshot.write() = next.clone();
 
-                let rates = rate_tracker
-                    .write_unchecked()
-                    .update(&traffic.connections, POLL_INTERVAL);
+                    let rates = rate_tracker
+                        .write_unchecked()
+                        .update(&traffic.connections, POLL_INTERVAL);
 
-                character_timeline
-                    .write_unchecked()
-                    .observe_snapshot(&next, &traffic.connections);
-                alert_engine
-                    .write_unchecked()
-                    .evaluate(&next, &traffic.connections);
+                    character_timeline
+                        .write_unchecked()
+                        .observe_snapshot(&next, &traffic.connections);
+                    alert_engine
+                        .write_unchecked()
+                        .evaluate(&next, &traffic.connections);
 
-                *system_traffic.write_unchecked() =
-                    (traffic.processes.clone(), traffic.connections.clone());
-                *connection_rates.write_unchecked() = rates;
-                *traffic_snapshot.write_unchecked() = traffic;
-                redraw(UserEvent::RequestRedraw);
-            }
-        }
-    });
-
-    use_future(move || {
-        let selected = selected;
-        let detail = detail;
-        let snapshot = snapshot;
-        let traffic_snapshot = traffic_snapshot;
-        async move {
-            loop {
-                if let Some(name) = selected.peek().clone() {
-                    let snap = snapshot.peek().clone();
-                    let traffic = traffic_snapshot.peek().clone();
-                    let loaded = interface_detail_from_traffic(&name, &snap, &traffic);
-                    *detail.write_unchecked() = Some(loaded);
-                } else {
-                    *detail.write_unchecked() = None;
+                    *system_traffic.write_unchecked() =
+                        (traffic.processes.clone(), traffic.connections.clone());
+                    *connection_rates.write_unchecked() = rates;
+                    *traffic_snapshot.write_unchecked() = traffic;
+                    redraw(UserEvent::RequestRedraw);
                 }
-                Timer::after(POLL_INTERVAL).await;
             }
-        }
-    });
+        });
+
+        use_future(move || {
+            let selected = selected;
+            let detail = detail;
+            let snapshot = snapshot;
+            let traffic_snapshot = traffic_snapshot;
+            async move {
+                loop {
+                    if let Some(name) = selected.peek().clone() {
+                        let snap = snapshot.peek().clone();
+                        let traffic = traffic_snapshot.peek().clone();
+                        let loaded = interface_detail_from_traffic(&name, &snap, &traffic);
+                        *detail.write_unchecked() = Some(loaded);
+                    } else {
+                        *detail.write_unchecked() = None;
+                    }
+                    Timer::after(POLL_INTERVAL).await;
+                }
+            }
+        });
+    }
 
     let palette = Palette::default();
     let data = snapshot.read().clone();

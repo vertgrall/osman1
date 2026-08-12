@@ -46,29 +46,29 @@ mod tests {
         let mut overview =
             TestingRunner::new(crate::app_demo, Size2D::new(1400., 920.), |_| {}, 1.0).0;
         overview.sync_and_update();
-        overview.render_to_file(dir.join("osman-overview.png"));
+        overview.render_to_file(dir.join("osman-overview-mock.png"));
 
         let mut about =
             TestingRunner::new(about_window, Size2D::new(460., 620.), |_| {}, 1.0).0;
         about.sync_and_update();
-        about.render_to_file(dir.join("osman-about-window.png"));
+        about.render_to_file(dir.join("osman-about-window-mock.png"));
 
         let mut settings =
             TestingRunner::new(crate::app_demo, Size2D::new(1400., 920.), |_| {}, 1.0).0;
         settings.sync_and_update();
         click_nav_item(&mut settings, "Settings");
-        settings.render_to_file(dir.join("osman-settings.png"));
+        settings.render_to_file(dir.join("osman-settings-mock.png"));
 
         let mut connections =
             TestingRunner::new(crate::app_demo, Size2D::new(1400., 920.), |_| {}, 1.0).0;
         connections.sync_and_update();
         click_nav_item(&mut connections, "Connections");
-        connections.render_to_file(dir.join("osman-connections.png"));
+        connections.render_to_file(dir.join("osman-connections-mock.png"));
 
         let mut processes =
             TestingRunner::new(crate::app_demo, Size2D::new(1400., 920.), |_| {}, 1.0).0;
         processes.sync_and_update();
         click_nav_item(&mut processes, "Processes");
-        processes.render_to_file(dir.join("osman-processes.png"));
+        processes.render_to_file(dir.join("osman-processes-mock.png"));
     }
 }

@@ -12,23 +12,23 @@ Headless Freya renders of the live UI at 1400×920, using **`app_demo()`** with 
 
 ### Overview
 
-![Osman overview — 8.1 MB/s total, hero chart + adapter sparklines](docs/screenshots/osman-overview.png)
+![Osman overview — 8.1 MB/s total, hero chart + adapter sparklines](docs/screenshots/osman-overview-mock.png)
 
 ### Connections
 
-![Osman connections — live rates per socket](docs/screenshots/osman-connections.png)
+![Osman connections — live rates per socket](docs/screenshots/osman-connections-mock.png)
 
 ### Processes
 
-![Osman processes — per-app traffic totals](docs/screenshots/osman-processes.png)
+![Osman processes — per-app traffic totals](docs/screenshots/osman-processes-mock.png)
 
 ### Settings (embedded About)
 
-![Osman settings — New Tower About panel](docs/screenshots/osman-settings.png)
+![Osman settings — New Tower About panel](docs/screenshots/osman-settings-mock.png)
 
 ### About window
 
-![About Osman — dedicated window](docs/screenshots/osman-about-window.png)
+![About Osman — dedicated window](docs/screenshots/osman-about-window-mock.png)
 
 Regenerate after UI changes:
 

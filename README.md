@@ -6,17 +6,41 @@
 
 ---
 
-## Screenshots
+## Screenshots (app running)
 
-### About panel (New Tower branding)
+Headless Freya renders of the live UI at 1400×920 — same components as `cargo run`.
 
-Skia canvas splash card with Tower Village artwork, lockup pill, and brand mark — mirrors Mohawk’s About layout.
+### Overview
 
-| Splash card (live render) | Brand mark |
+![Osman overview — network activity hero, sidebar nav, adapter table](docs/screenshots/osman-overview.png)
+
+### Settings (embedded About)
+
+![Osman settings — New Tower About panel with Tower Village splash](docs/screenshots/osman-settings.png)
+
+### About window
+
+![About Osman — dedicated window from App menu / tray](docs/screenshots/osman-about-window.png)
+
+### Connections
+
+![Osman connections view](docs/screenshots/osman-connections.png)
+
+Regenerate after UI changes:
+
+```bash
+./scripts/export-readme-screenshots.sh
+```
+
+---
+
+## About branding (art assets)
+
+| Splash card (Skia canvas) | Brand mark |
 |---|---|
 | ![About splash card](docs/screenshots/about-splash-card.png) | ![New Tower brand mark](docs/screenshots/about-brand-mark.png) |
 
-Tower Village source asset (shared with Mohawk):
+Tower Village source (Mohawk parity):
 
 ![Tower Village hero](docs/screenshots/tower-village-hero.png)
 
@@ -33,15 +57,15 @@ Tower Village source asset (shared with Mohawk):
 | **Menu bar** | Live RX/TX rates, tray popover, About / Quit |
 | **About** | New Tower splash, lockup, brand mark; macOS App menu redirect |
 | **Theme** | Light clinical palette (taupe / sage / orange) |
-| **Tests** | 57 unit + UI + pixel regression tests (`cargo test`) |
+| **Tests** | 58 unit + UI + pixel regression tests (`cargo test`) |
 
 ---
 
 ## Recent focus (Aug 2026)
 
-1. **About panel** — Replaced macOS generic blue-folder About with a Freya window using embedded Mohawk-parity PNGs (`SplashTowerVillage`, `NewTowerBrandMark`).
-2. **macOS App menu hook** — `Osman → About` posts through Freya’s renderer dispatch (safe outside component scope; fixes prior panic).
-3. **Regression tests** — Off-screen Skia pixel checks ensure splash/brand canvases actually draw, not just layout empty boxes.
+1. **About panel** — Replaced macOS generic blue-folder About with a Freya window using embedded Mohawk-parity PNGs.
+2. **macOS App menu hook** — `Osman → About` posts through Freya’s renderer dispatch (fixes prior panic outside component scope).
+3. **Regression tests** — Off-screen Skia pixel checks + headless UI screenshot export for README.
 
 ---
 
@@ -56,12 +80,6 @@ First compile pulls Freya/Skia and can take several minutes.
 ```bash
 cargo test          # full suite
 cargo test about    # About + branding tests only
-```
-
-Regenerate README screenshots after art changes:
-
-```bash
-EXPORT_README=1 cargo test about_test_harness::tests::export_readme_screenshots -- --ignored --exact
 ```
 
 ---
@@ -82,12 +100,6 @@ EXPORT_README=1 cargo test about_test_harness::tests::export_readme_screenshots 
 - [ ] App icon + dock tile (New Tower shell branding)
 - [ ] Release build + notarization path
 - [ ] Mohawk feature parity checklist
-
----
-
-## Brand assets
-
-Embedded at build time from `resources/brand/` (same Tower Village + toolbar mark as Mohawk). See `about_assets.rs` for SHA/size parity tests against Mohawk source when that repo is present locally.
 
 ---
 

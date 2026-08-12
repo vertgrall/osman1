@@ -13,6 +13,8 @@ mod charts;
 mod about_test_harness;
 #[cfg(test)]
 mod chart_test_harness;
+#[cfg(test)]
+mod ui_screenshot_harness;
 mod detail;
 mod lfo;
 mod macos_about_menu;

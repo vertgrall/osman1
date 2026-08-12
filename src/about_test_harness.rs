@@ -156,7 +156,7 @@ mod tests {
             "Osman",
             "By New Tower",
             "See your network breathe.",
-            "Designed and developed in Bellevue, WA by Jon McMillion for New Tower.",
+            "Designed and Developed by Jon McMillion",
         ] {
             assert!(
                 labels.iter().any(|text| text.contains(needle)),

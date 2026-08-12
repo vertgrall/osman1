@@ -3,7 +3,7 @@
 > **Work in progress** · macOS network monitor · New Tower  
 > Monitor only — no firewall, no root, no packet capture.
 
-**Version today:** `0.1.0` · **Tests:** ~73 · **Stack:** Rust + Freya 0.4
+**Version today:** `0.1.0` · **Tests:** ~78 · **Stack:** Rust + Freya 0.4
 
 This document is the **execution plan**. Check boxes in PRs; update status when a phase completes.
 
@@ -59,27 +59,31 @@ Phase 4 ──► Osman Pro (optional)  (history export, GeoIP, webhooks)
 
 **Outcome:** Gatekeeper-trusted `.app` or DMG. User sees traffic **or** a clear fix-it message — never a silent empty UI.
 
-### 0.1 — Brand & bundle identity
+### 0.1 — Brand & bundle identity ✅
 
 | # | Task | Files / notes | Effort |
 |---|------|---------------|--------|
-| 0.1a | Finalize app icon (New Tower shell / planet chroma) | `Mohawk/Assets.xcassets/NewTowerShellAppIcon*` as reference; Xcode asset catalog or `resources/icon/` | M |
-| 0.1b | Wire icon into Freya/winit bundle | `Cargo.toml`, `Info.plist` or build script; CFBundleIconFile | S |
-| 0.1c | Replace programmatic menubar tray dots with branded mark | `menubar.rs` → `traffic_icon()`; use `NewTowerBrandMark.png` rasterized | S |
-| 0.1d | Set bundle ID, display name, copyright | `Info.plist`: `com.newtower.osman`, "Osman by NT" | S |
+| 0.1a | ✅ Clinical Scope app icon (mock 04) | `resources/icon/OsmanAppIcon-1024.png`, `AppIcon.appiconset` | M |
+| 0.1b | ✅ Wire icon into Freya/winit + `.icns` | `icon_assets.rs`, `build.rs`, `WindowConfig::with_icon` | S |
+| 0.1c | ✅ Branded menubar tray icon | `MenubarIcon-22.png` replaces programmatic dots | S |
+| 0.1d | ✅ Bundle ID, display name, copyright | `resources/Info.plist`, `scripts/build-release.sh` | S |
+
+**Design:** [`docs/design/phase-0.1-clinical-icon.md`](docs/design/phase-0.1-clinical-icon.md)
 
 **Acceptance:** Dock and About show branded icon; menubar icon is recognizable at 22×22.
 
 ---
 
-### 0.2 — Release build pipeline
+### 0.2 — Release build pipeline ✅
 
 | # | Task | Files / notes | Effort |
 |---|------|---------------|--------|
-| 0.2a | Add `scripts/build-release.sh` | `cargo build --release`, copy binary, bundle `.app` skeleton | M |
-| 0.2b | Embed version + git metadata in About | `build.rs` (exists); extend with build date if desired | S |
-| 0.2c | Release profile tuning | `Cargo.toml` `[profile.release]` lto, strip | S |
-| 0.2d | Smoke test: release binary launches, polls, menubar updates | Manual checklist in PR | S |
+| 0.2a | ✅ `scripts/build-release.sh` | `dist/Osman.app` + clinical icon | M |
+| 0.2b | Embed version + git metadata in About | `build.rs` (exists) | S |
+| 0.2c | ✅ Release profile tuning | `Cargo.toml` lto + strip | S |
+| 0.2d | Smoke test: release binary launches | Manual / `./scripts/build-dmg.sh` | S |
+
+**DMG:** `./scripts/build-dmg.sh` → `dist/Osman-0.1.0.dmg`
 
 **Acceptance:** `./scripts/build-release.sh` produces `Osman.app` that runs without debug deps.
 
@@ -134,7 +138,7 @@ Phase 4 ──► Osman Pro (optional)  (history export, GeoIP, webhooks)
 
 ### Phase 0 exit checklist
 
-- [ ] Branded `.app` + DMG
+- [x] Branded `.app` + DMG
 - [ ] Notarized (or documented skip for internal-only)
 - [x] Error states for failed data collection
 - [x] Onboarding screen

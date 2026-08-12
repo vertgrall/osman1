@@ -61,8 +61,9 @@ Tower Village source (Mohawk parity):
 | **Menu bar** | Live RX/TX rates, tray popover, About / Quit |
 | **About** | New Tower splash, lockup, brand mark; macOS App menu redirect |
 | **Onboarding** | First-run privacy sheet (what Osman reads / does not do); skipped after dismiss |
+| **App icon** | Clinical Scope (scope + waveform); dock via `dist/Osman.app`, menubar 22px |
 | **Theme** | Light clinical palette (taupe / sage / orange) |
-| **Tests** | 73 unit + UI + pixel regression tests (`cargo test`) |
+| **Tests** | 78 unit + UI + pixel regression tests (`cargo test`) |
 
 ---
 
@@ -71,6 +72,17 @@ Tower Village source (Mohawk parity):
 1. **About panel** — Replaced macOS generic blue-folder About with a Freya window using embedded Mohawk-parity PNGs.
 2. **macOS App menu hook** — `Osman → About` posts through Freya’s renderer dispatch (fixes prior panic outside component scope).
 3. **Regression tests** — Off-screen Skia pixel checks + headless UI screenshot export for README.
+
+---
+
+## Install (DMG)
+
+```bash
+./scripts/build-dmg.sh
+open dist/Osman-0.1.0.dmg
+```
+
+Drag **Osman** to **Applications**. First open: right-click → Open (unsigned build until Phase 0.3 notarization).
 
 ---
 

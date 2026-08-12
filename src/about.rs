@@ -29,7 +29,7 @@ pub fn about_content(palette: Palette) -> Element {
         .child(about_meta_rows(palette))
         .child(
             label()
-                .text("Designed and developed in Bellevue, WA by Jon McMillion for New Tower.")
+                .text("Designed and Developed by Jon McMillion")
                 .font_size(11.)
                 .color(palette.muted)
                 .text_align(TextAlign::Center)
@@ -291,7 +291,7 @@ mod tests {
             "By New Tower",
             "Version",
             "Platforms",
-            "Designed and developed in Bellevue, WA by Jon McMillion for New Tower.",
+            "Designed and Developed by Jon McMillion",
             "Overview hero charts and adapter sparklines with clinical scopes",
         ] {
             assert!(

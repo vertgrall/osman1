@@ -66,6 +66,7 @@ Minimum test count guidance:
 |----|------------|--------|
 | 0.4 | [phase-0.4-data-health.md](../design/phase-0.4-data-health.md) | Shipped |
 | 0.5 | [phase-0.5-onboarding.md](../design/phase-0.5-onboarding.md) | Shipped |
+| 0.1 | [phase-0.1-clinical-icon.md](../design/phase-0.1-clinical-icon.md) | Shipped |
 | 1A | _pending_ | — |
 | 1B | _pending_ | — |
 

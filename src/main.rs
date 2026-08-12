@@ -17,8 +17,10 @@ mod chart_test_harness;
 mod ui_screenshot_harness;
 mod data_health;
 mod detail;
+mod icon_assets;
 mod lfo;
 mod macos_about_menu;
+mod macos_dock_icon;
 mod menubar;
 mod mock_traffic;
 mod network;
@@ -84,13 +86,15 @@ fn main() {
                 }));
                 async_io::Timer::after(std::time::Duration::from_millis(250)).await;
                 macos_about_menu::install();
+                macos_dock_icon::install(icon_assets::DOCK_ICON_BYTES);
             })
             .with_window(
             WindowConfig::new(app)
                 .with_title("Osman by NT")
                 .with_size(1400., 920.)
                 .with_min_size(1000., 720.)
-                .with_background(Palette::default().bg),
+                .with_background(Palette::default().bg)
+                .with_icon(icon_assets::window_icon()),
             ),
     ));
 }

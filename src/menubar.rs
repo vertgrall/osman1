@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use freya::prelude::*;
 use freya::tray::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
-    Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent, TrayEvent,
+    MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent, TrayEvent,
 };
 use freya::winit::window::WindowId;
 
@@ -192,7 +192,7 @@ fn build_tray() -> TrayIcon {
     let menu = Menu::with_items(&[&show, &about, &separator, &quit]).expect("menubar menu");
 
     let tray = TrayIconBuilder::new()
-        .with_icon(traffic_icon())
+        .with_icon(crate::icon_assets::menubar_icon())
         .with_title("Osman")
         .with_tooltip("Osman by NT — network monitor")
         .with_menu(Box::new(menu))
@@ -332,37 +332,6 @@ fn menubar_tooltip(rx_bps: f64, tx_bps: f64) -> String {
             format_rate(tx_bps),
             format_rate(total),
         )
-    }
-}
-
-fn traffic_icon() -> Icon {
-    const W: u32 = 22;
-    const H: u32 = 22;
-    let mut rgba = vec![0u8; (W * H * 4) as usize];
-    fill_circle(&mut rgba, W, H, 7.0, 11.0, 4.5, [59, 130, 246, 255]);
-    fill_circle(&mut rgba, W, H, 15.0, 11.0, 4.5, [34, 197, 94, 255]);
-    Icon::from_rgba(rgba, W, H).expect("menubar icon")
-}
-
-fn fill_circle(
-    rgba: &mut [u8],
-    width: u32,
-    height: u32,
-    cx: f32,
-    cy: f32,
-    radius: f32,
-    color: [u8; 4],
-) {
-    let r2 = radius * radius;
-    for y in 0..height {
-        for x in 0..width {
-            let dx = x as f32 + 0.5 - cx;
-            let dy = y as f32 + 0.5 - cy;
-            if dx * dx + dy * dy <= r2 {
-                let i = ((y * width + x) * 4) as usize;
-                rgba[i..i + 4].copy_from_slice(&color);
-            }
-        }
     }
 }
 

@@ -162,6 +162,13 @@ pub fn traffic_snapshot() -> TrafficSnapshot {
     TrafficSnapshot {
         connections,
         processes,
+        health: crate::data_health::DataHealth {
+            nettop_tcp_ok: true,
+            nettop_udp_ok: true,
+            lsof_ok: true,
+            nettop_rows: 10,
+            lsof_rows: 0,
+        },
     }
 }
 

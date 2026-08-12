@@ -13,9 +13,27 @@ use crate::charts::{
     display_chart_max, draw_activity_sparkline, draw_network_activity, sparkline_scale,
     ChartScaleBank,
 };
+use crate::data_health::DataHealth;
 use crate::network::{InterfaceStats, NetworkSnapshot};
 use crate::theme::{format_rate, Palette, ProcessLane};
 use crate::time_window::{slice_history, TimeWindow};
+
+pub fn overview_health_banner(message: impl Into<String>, palette: Palette) -> Element {
+    let message = message.into();
+    rect()
+        .width(Size::fill())
+        .background(palette.panel)
+        .corner_radius(8.)
+        .border(palette.border())
+        .padding(Gaps::new_all(12.))
+        .child(
+            label()
+                .text(message)
+                .font_size(11.)
+                .color(palette.muted),
+        )
+        .into()
+}
 
 pub fn overview_adapter_table(
     snapshot: &NetworkSnapshot,
@@ -113,8 +131,12 @@ fn overview_adapter_rows(
     mode: AdapterTableMode,
 ) -> Element {
     if snapshot.interfaces.is_empty() {
+        let network = NetworkSnapshot {
+            sample_tick,
+            ..NetworkSnapshot::default()
+        };
         return label()
-            .text("Waiting for adapter samples…")
+            .text(DataHealth::adapter_empty_message(&network))
             .font_size(14.)
             .color(palette.muted)
             .into();
@@ -791,6 +813,60 @@ mod tests {
         assert!(
             scale < crate::charts::MIN_CHART_SCALE,
             "adapter sparkline must not use hero floor for B/s traffic: {scale}"
+        );
+    }
+
+    #[test]
+    fn overview_shows_health_banner_when_degraded() {
+        let palette = Palette::default();
+        let mut test = launch_test({
+            move || {
+                overview_health_banner(
+                    "Connection details unavailable (nettop failed). Adapter totals still update.",
+                    palette,
+                )
+            }
+        });
+        test.sync_and_update();
+
+        let labels: Vec<String> = test.find_many(|_, element| {
+            Label::try_downcast(element).map(|label| label.text.to_string())
+        });
+        assert!(
+            labels
+                .iter()
+                .any(|text| text.contains("nettop failed")),
+            "expected degraded health banner text, got {labels:?}"
+        );
+    }
+
+    #[test]
+    fn overview_empty_adapters_use_health_copy() {
+        let palette = Palette::default();
+        let snapshot = NetworkSnapshot::default();
+        let mut test = launch_test({
+            move || {
+                let selected = use_state(|| None::<String>);
+                overview_adapter_table(
+                    &snapshot,
+                    palette,
+                    selected,
+                    TimeWindow::Sec60,
+                    0,
+                    AdapterTableMode::OverviewStatic,
+                )
+            }
+        });
+        test.sync_and_update();
+
+        let labels: Vec<String> = test.find_many(|_, element| {
+            Label::try_downcast(element).map(|label| label.text.to_string())
+        });
+        assert!(
+            labels
+                .iter()
+                .any(|text| text.contains("Waiting for first adapter sample")),
+            "expected first-sample empty adapter copy, got {labels:?}"
         );
     }
 }

@@ -60,8 +60,9 @@ Tower Village source (Mohawk parity):
 | **Alerts** | Threshold engine + rules UI |
 | **Menu bar** | Live RX/TX rates, tray popover, About / Quit |
 | **About** | New Tower splash, lockup, brand mark; macOS App menu redirect |
+| **Onboarding** | First-run privacy sheet (what Osman reads / does not do); skipped after dismiss |
 | **Theme** | Light clinical palette (taupe / sage / orange) |
-| **Tests** | 58 unit + UI + pixel regression tests (`cargo test`) |
+| **Tests** | 73 unit + UI + pixel regression tests (`cargo test`) |
 
 ---
 
@@ -98,6 +99,8 @@ cargo test about    # About + branding tests only
 ---
 
 ## Roadmap (in progress)
+
+See **[ROADMAP.md](ROADMAP.md)** for phased execution plan (Phase 0 → Pro).
 
 - [ ] Polish Traffic Character scopes and transitions
 - [ ] Connection detail chart axis labels / scale tuning

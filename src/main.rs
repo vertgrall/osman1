@@ -15,12 +15,14 @@ mod about_test_harness;
 mod chart_test_harness;
 #[cfg(test)]
 mod ui_screenshot_harness;
+mod data_health;
 mod detail;
 mod lfo;
 mod macos_about_menu;
 mod menubar;
 mod mock_traffic;
 mod network;
+mod onboarding;
 mod overview_ui;
 mod parse;
 mod particles;
@@ -53,8 +55,10 @@ use sysinfo::Networks;
 use theme::{format_rate, format_total, Palette, ProcessLane};
 use crate::about::about_content;
 use crate::adapter_table_layout::AdapterTableMode;
+use crate::data_health::DataHealth;
+use crate::onboarding::OnboardingStore;
 use connection_detail_view::connection_detail_screen;
-use overview_ui::{overview_adapter_table, overview_network_hero};
+use overview_ui::{overview_adapter_table, overview_health_banner, overview_network_hero};
 use traffic_character_view::traffic_character_screen;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -139,6 +143,9 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
     let chart_scales = use_state(ChartScaleBank::default);
     let traffic_snapshot = use_state(move || demo_traffic_for_state.unwrap_or_default());
     let selected_connection = use_state(|| None::<ConnectionDetail>);
+    let onboarding_store = OnboardingStore::production();
+    let onboarding_for_gate = onboarding_store.clone();
+    let show_onboarding = use_state(move || !is_demo && !onboarding_for_gate.has_seen());
 
     if !is_demo {
         use_future(move || {
@@ -240,6 +247,7 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
     let filter = list_filter.read().clone();
     let selected_conn = selected_connection.read().clone();
     let rate_tracker_snap = rate_tracker.read().clone();
+    let traffic_health = traffic_snapshot.read().health.clone();
     let detail_open = selected_name.is_some();
     let anim_frame = if section_needs_animation(section, detail_open) {
         *anim_time.read()
@@ -250,42 +258,57 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
     rect()
         .expanded()
         .background(palette.bg)
-        .horizontal()
-        .spacing(0.)
-        .child(sidebar(
-            &data,
-            palette,
-            app_section,
-            selected,
-            selected_connection,
-            started,
-            section,
-            &alerts,
-        ))
-        .child(main_content(
-            section,
-            data,
-            palette,
-            selected,
-            selected_name,
-            detail_data,
-            processes,
-            connections,
-            live_rates,
-            anim_clock,
-            char_scopes,
-            time_window,
-            window,
-            timeline,
-            alerts.clone(),
-            list_filter,
-            filter,
-            anim_frame,
-            chart_scales,
-            selected_connection,
-            selected_conn,
-            rate_tracker_snap,
-        ))
+        .child(
+            rect()
+                .expanded()
+                .horizontal()
+                .spacing(0.)
+                .child(sidebar(
+                    &data,
+                    palette,
+                    app_section,
+                    selected,
+                    selected_connection,
+                    started,
+                    section,
+                    &alerts,
+                ))
+                .child(main_content(
+                    section,
+                    data,
+                    palette,
+                    selected,
+                    selected_name,
+                    detail_data,
+                    processes,
+                    connections,
+                    live_rates,
+                    anim_clock,
+                    char_scopes,
+                    time_window,
+                    window,
+                    timeline,
+                    alerts.clone(),
+                    list_filter,
+                    filter,
+                    anim_frame,
+                    chart_scales,
+                    selected_connection,
+                    selected_conn,
+                    rate_tracker_snap,
+                    traffic_health,
+                )),
+        )
+        .child({
+            let mut app_section = app_section;
+            crate::onboarding::onboarding_overlay(
+                palette,
+                show_onboarding,
+                onboarding_store,
+                move || app_section.set(AppSection::Settings),
+                || menubar::request_about_window(),
+            )
+        })
         .into()
 }
 
@@ -312,33 +335,42 @@ fn main_content(
     selected_connection: State<Option<ConnectionDetail>>,
     selected_conn: Option<ConnectionDetail>,
     rate_tracker_snap: RateTracker,
+    traffic_health: DataHealth,
 ) -> Element {
     match section {
-        AppSection::Overview => rect()
-            .vertical()
-            .expanded()
-            .padding(Gaps::new_all(16.))
-            .spacing(12.)
-            .child(overview_network_hero(
-                snapshot.clone(),
-                palette,
-                time_window,
-                window,
-                chart_scales,
-            ))
-            .child(adapter_stack(
-                &snapshot,
-                snapshot.sample_tick,
-                palette,
-                selected,
-                selected_name,
-                detail,
-                live_rates,
-                window,
-                chart_scales,
-                AdapterTableMode::OverviewStatic,
-            ))
-            .into(),
+        AppSection::Overview => {
+            let mut overview = rect()
+                .vertical()
+                .expanded()
+                .padding(Gaps::new_all(16.))
+                .spacing(12.);
+
+            if let Some(msg) = traffic_health.overview_banner() {
+                overview = overview.child(overview_health_banner(msg, palette));
+            }
+
+            overview
+                .child(overview_network_hero(
+                    snapshot.clone(),
+                    palette,
+                    time_window,
+                    window,
+                    chart_scales,
+                ))
+                .child(adapter_stack(
+                    &snapshot,
+                    snapshot.sample_tick,
+                    palette,
+                    selected,
+                    selected_name,
+                    detail,
+                    live_rates,
+                    window,
+                    chart_scales,
+                    AdapterTableMode::OverviewStatic,
+                ))
+                .into()
+        }
         AppSection::Adapters => rect()
             .vertical()
             .expanded()

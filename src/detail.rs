@@ -15,13 +15,21 @@ use crate::theme::{format_rate, format_total};
 pub struct TrafficSnapshot {
     pub connections: Vec<ConnectionDetail>,
     pub processes: Vec<ProcessTraffic>,
+    pub health: crate::data_health::DataHealth,
 }
 
 impl TrafficSnapshot {
     pub fn collect() -> Self {
         let mut snapshot = Self::default();
-        collect_nettop(None, &mut snapshot);
-        append_lsof_listeners(&mut snapshot);
+        let (tcp_ok, udp_ok, nettop_rows) = collect_nettop(None, &mut snapshot);
+        let (lsof_ok, lsof_rows) = append_lsof_listeners(&mut snapshot);
+        snapshot.health = crate::data_health::DataHealth {
+            nettop_tcp_ok: tcp_ok,
+            nettop_udp_ok: udp_ok,
+            lsof_ok,
+            nettop_rows,
+            lsof_rows,
+        };
         snapshot.finalize();
         snapshot
     }
@@ -255,72 +263,99 @@ fn interface_hardware(
     )
 }
 
-fn collect_nettop(interface: Option<&str>, snapshot: &mut TrafficSnapshot) {
-    let mut per_process: HashMap<u32, ProcessTraffic> = HashMap::new();
-    let mut current: Option<(String, u32)> = None;
+fn collect_nettop(
+    interface: Option<&str>,
+    snapshot: &mut TrafficSnapshot,
+) -> (bool, bool, usize) {
+    let mut tcp_ok = false;
+    let mut udp_ok = false;
+    let mut total_rows = 0usize;
 
-    for mode in ["tcp", "udp"] {
+    for (mode, ok_flag) in [("tcp", &mut tcp_ok), ("udp", &mut udp_ok)] {
         let output = Command::new("nettop")
             .args(["-m", mode, "-L", "1", "-n", "-x"])
             .output();
 
-        let Ok(output) = output else { continue };
+        let Ok(output) = output else {
+            continue;
+        };
+        *ok_flag = true;
         let text = String::from_utf8_lossy(&output.stdout);
+        total_rows += ingest_nettop_text(&text, interface, snapshot);
+    }
 
-        for line in text.lines().skip(1) {
-            let cols: Vec<&str> = line.split(',').collect();
-            if cols.len() < 6 {
-                continue;
-            }
+    (tcp_ok, udp_ok, total_rows)
+}
 
-            let key = cols[1].trim();
-            if is_process_key(key) {
-                current = parse_process_key(key);
-                continue;
-            }
+/// Parse nettop CSV text into snapshot (testable without subprocess).
+pub fn ingest_nettop_text(
+    text: &str,
+    interface: Option<&str>,
+    snapshot: &mut TrafficSnapshot,
+) -> usize {
+    let mut per_process: HashMap<u32, ProcessTraffic> = snapshot
+        .processes
+        .drain(..)
+        .map(|p| (p.pid, p))
+        .collect();
+    let mut current: Option<(String, u32)> = None;
+    let mut rows = 0usize;
 
-            if !(key.starts_with("tcp") || key.starts_with("udp")) {
-                continue;
-            }
-
-            let iface = cols.get(2).map(|s| s.trim()).unwrap_or("");
-            if interface.is_some_and(|wanted| iface != wanted) {
-                continue;
-            }
-
-            let parsed = parse_nettop_key(key);
-            let state = cols.get(3).unwrap_or(&"").trim().to_string();
-            let rx = cols.get(4).copied().and_then(parse_u64).unwrap_or(0);
-            let tx = cols.get(5).copied().and_then(parse_u64).unwrap_or(0);
-            let (process_name, pid) = current.clone().unwrap_or(("unknown".into(), 0));
-
-            let conn = build_connection_from_nettop(
-                key,
-                &parsed,
-                process_name.clone(),
-                pid,
-                iface,
-                state,
-                rx,
-                tx,
-            );
-
-            snapshot.connections.push(conn);
-
-            let entry = per_process.entry(pid).or_insert_with(|| ProcessTraffic {
-                name: process_name,
-                pid,
-                rx_bytes: 0,
-                tx_bytes: 0,
-                connection_count: 0,
-            });
-            entry.rx_bytes = entry.rx_bytes.saturating_add(rx);
-            entry.tx_bytes = entry.tx_bytes.saturating_add(tx);
-            entry.connection_count += 1;
+    for line in text.lines().skip(1) {
+        let cols: Vec<&str> = line.split(',').collect();
+        if cols.len() < 6 {
+            continue;
         }
+
+        let key = cols[1].trim();
+        if is_process_key(key) {
+            current = parse_process_key(key);
+            continue;
+        }
+
+        if !(key.starts_with("tcp") || key.starts_with("udp")) {
+            continue;
+        }
+
+        let iface = cols.get(2).map(|s| s.trim()).unwrap_or("");
+        if interface.is_some_and(|wanted| iface != wanted) {
+            continue;
+        }
+
+        let parsed = parse_nettop_key(key);
+        let state = cols.get(3).unwrap_or(&"").trim().to_string();
+        let rx = cols.get(4).copied().and_then(parse_u64).unwrap_or(0);
+        let tx = cols.get(5).copied().and_then(parse_u64).unwrap_or(0);
+        let (process_name, pid) = current.clone().unwrap_or(("unknown".into(), 0));
+
+        let conn = build_connection_from_nettop(
+            key,
+            &parsed,
+            process_name.clone(),
+            pid,
+            iface,
+            state,
+            rx,
+            tx,
+        );
+
+        snapshot.connections.push(conn);
+        rows += 1;
+
+        let entry = per_process.entry(pid).or_insert_with(|| ProcessTraffic {
+            name: process_name,
+            pid,
+            rx_bytes: 0,
+            tx_bytes: 0,
+            connection_count: 0,
+        });
+        entry.rx_bytes = entry.rx_bytes.saturating_add(rx);
+        entry.tx_bytes = entry.tx_bytes.saturating_add(tx);
+        entry.connection_count += 1;
     }
 
     snapshot.processes = per_process.into_values().collect();
+    rows
 }
 
 fn build_connection_from_nettop(
@@ -385,11 +420,14 @@ fn build_connection_from_nettop(
     }
 }
 
-fn append_lsof_listeners(snapshot: &mut TrafficSnapshot) {
+fn append_lsof_listeners(snapshot: &mut TrafficSnapshot) -> (bool, usize) {
     let output = Command::new("lsof").args(["-n", "-P", "-i"]).output();
-    let Ok(output) = output else { return };
+    let Ok(output) = output else {
+        return (false, 0);
+    };
     let text = String::from_utf8_lossy(&output.stdout);
     let networks = Networks::new_with_refreshed_list();
+    let mut rows = 0usize;
 
     let mut seen: HashSet<(u32, Option<u16>, String)> = snapshot
         .connections
@@ -459,7 +497,10 @@ fn append_lsof_listeners(snapshot: &mut TrafficSnapshot) {
                 connection_count: 1,
             });
         }
+        rows += 1;
     }
+
+    (true, rows)
 }
 
 fn resolve_interface(networks: &Networks, local: &crate::parse::HostPort) -> String {
@@ -614,5 +655,22 @@ mod tests {
         };
         let iface = resolve_interface(&networks, &local);
         assert_ne!(iface, "—");
+    }
+
+    #[test]
+    fn ingest_nettop_fixture_populates_connections() {
+        let fixture = include_str!("../tests/fixtures/nettop_tcp_sample.txt");
+        let mut snapshot = TrafficSnapshot::default();
+        let rows = ingest_nettop_text(fixture, None, &mut snapshot);
+        assert_eq!(rows, 2);
+        assert_eq!(snapshot.connections.len(), 2);
+        assert!(snapshot
+            .connections
+            .iter()
+            .all(|c| c.process_name == "Google Chrome" && c.pid == 8842));
+        assert_eq!(snapshot.processes.len(), 1);
+        assert_eq!(snapshot.processes[0].connection_count, 2);
+        assert_eq!(snapshot.processes[0].rx_bytes, 1500);
+        assert_eq!(snapshot.processes[0].tx_bytes, 300);
     }
 }

@@ -300,12 +300,13 @@ pub fn draw_activity_sparkline(
     let combined = resample_for_display(combined, 96);
 
     let len = rx.len().max(tx.len()).max(combined.len());
-    if len < 2 {
+    if len == 0 {
         draw_sparkline_baseline(ctx, origin_x, plot_w, floor, palette);
         ctx.canvas.restore();
         return;
     }
 
+    let (rx, tx, combined) = pad_series_for_draw(rx, tx, combined);
     let draw_max = scale.max(1.0);
 
     draw_area_series_offset(

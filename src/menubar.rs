@@ -9,6 +9,7 @@ use freya::winit::window::WindowId;
 
 use crate::about::{about_window, ABOUT_WINDOW_H, ABOUT_WINDOW_W};
 use crate::adapters::adapter_title;
+use crate::charts::{draw_activity_sparkline, sparkline_scale};
 use crate::icon_assets;
 use crate::network::{InterfaceStats, NetworkSnapshot};
 use crate::preferences;
@@ -18,6 +19,11 @@ use crate::time_window::{slice_history, TimeWindow};
 const MENU_SHOW: &str = "osman.show";
 const MENU_ABOUT: &str = "osman.about";
 const MENU_QUIT: &str = "osman.quit";
+const POPOVER_WIDTH: f64 = 360.0;
+const POPOVER_HEIGHT: f64 = 268.0;
+const MINI_SPARK_HEIGHT: f32 = 88.0;
+const MINI_STAT_HEIGHT: f32 = 36.0;
+const MINI_CYCLE_BUTTON: f32 = 32.0;
 
 static LATEST: Mutex<Option<NetworkSnapshot>> = Mutex::new(None);
 static MINI_TARGET_INDEX: Mutex<usize> = Mutex::new(0);
@@ -238,68 +244,88 @@ fn menubar_popover() -> Element {
         .vertical()
         .width(Size::fill())
         .height(Size::fill())
-        .background(palette.bg)
+        .background(palette.panel)
+        .main_align(Alignment::Start)
+        .padding(Gaps::new_all(12.))
+        .spacing(8.)
         .child(
             rect()
-                .vertical()
                 .width(Size::fill())
-                .padding(Gaps::new_all(12.))
-                .spacing(8.)
-                .background(palette.panel)
-                .corner_radius(12.)
-                .border(palette.elevated_border())
-                .child(
-                    rect()
-                        .horizontal()
-                        .width(Size::fill())
-                        .height(Size::px(3.))
-                        .background(palette.accent)
-                        .corner_radius(2.),
-                )
-                .child(
-                    label()
-                        .text("Osman — Live")
-                        .font_size(13.)
-                        .font_weight(FontWeight::BOLD)
-                        .color(palette.text),
-                )
-                .child(mini_target_header(
-                    &target.label,
-                    can_cycle,
+                .height(Size::px(3.))
+                .background(palette.accent)
+                .corner_radius(2.),
+        )
+        .child(
+            label()
+                .text("Osman — Live")
+                .font_size(13.)
+                .font_weight(FontWeight::BOLD)
+                .color(palette.text)
+                .height(Size::px(18.)),
+        )
+        .child(mini_target_header(
+            &target.label,
+            can_cycle,
+            palette,
+            target_index,
+            live_snap.clone(),
+        ))
+        .child(mini_sparkline(
+            rx_slice,
+            tx_slice,
+            combined_slice,
+            palette,
+            _live,
+        ))
+        .child(
+            rect()
+                .horizontal()
+                .width(Size::fill())
+                .height(Size::px(MINI_STAT_HEIGHT))
+                .spacing(12.)
+                .child(mini_stat(ProcessLane::Red, target.rx_bps, palette))
+                .child(mini_stat(ProcessLane::Blue, target.tx_bps, palette))
+                .child(mini_stat(ProcessLane::Green, total, palette)),
+        )
+        .child(
+            label()
+                .text(format!("{} · {}", position_label, target.detail))
+                .font_size(10.)
+                .color(palette.muted)
+                .height(Size::px(14.)),
+        )
+        .into()
+}
+
+fn mini_sparkline(
+    rx_slice: Vec<f64>,
+    tx_slice: Vec<f64>,
+    combined_slice: Vec<f64>,
+    palette: Palette,
+    sample_tick: u64,
+) -> Element {
+    rect()
+        .width(Size::fill())
+        .height(Size::px(MINI_SPARK_HEIGHT))
+        .background(palette.bg)
+        .corner_radius(8.)
+        .border(palette.border())
+        .overflow(Overflow::Clip)
+        .child(
+            canvas(RenderCallback::new(move |ctx| {
+                let max_y = sparkline_scale(&rx_slice, &tx_slice, &combined_slice);
+                draw_activity_sparkline(
+                    ctx,
+                    &rx_slice,
+                    &tx_slice,
+                    &combined_slice,
                     palette,
-                    target_index,
-                    live_snap.clone(),
-                ))
-                .child(
-                    rect()
-                        .horizontal()
-                        .spacing(12.)
-                        .child(mini_stat(ProcessLane::Red, target.rx_bps, palette))
-                        .child(mini_stat(ProcessLane::Blue, target.tx_bps, palette))
-                        .child(mini_stat(ProcessLane::Green, total, palette)),
-                )
-                .child(
-                    canvas(RenderCallback::new(move |ctx| {
-                        let max_y =
-                            crate::charts::chart_peak_max(&rx_slice, &tx_slice, &combined_slice);
-                        crate::charts::draw_activity_sparkline(
-                            ctx,
-                            &rx_slice,
-                            &tx_slice,
-                            &combined_slice,
-                            palette,
-                            max_y,
-                        );
-                    }))
-                    .width(Size::fill())
-                    .height(Size::px(72.)),
-                )
-                .child(
-                    label()
-                        .text(format!("{} · {}", position_label, target.detail))
-                        .font_size(10.)
-                        .color(palette.muted),
-                ),
+                    max_y,
+                );
+            }))
+            .width(Size::fill())
+            .height(Size::px(MINI_SPARK_HEIGHT))
+            .key(sample_tick),
         )
         .into()
 }
@@ -315,7 +341,9 @@ fn mini_target_header(
     rect()
         .horizontal()
         .width(Size::fill())
-        .spacing(6.)
+        .height(Size::px(MINI_CYCLE_BUTTON))
+        .content(Content::flex())
+        .cross_align(Alignment::Center)
         .child(mini_cycle_button(
             "‹",
             can_cycle,
@@ -331,14 +359,18 @@ fn mini_target_header(
         ))
         .child(
             rect()
-                .expanded()
+                .width(Size::flex(1.))
+                .height(Size::px(MINI_CYCLE_BUTTON))
+                .main_align(Alignment::Center)
+                .cross_align(Alignment::Center)
+                .padding(Gaps::new(0., 8., 0., 8.))
                 .child(
                     label()
                         .text(title)
                         .font_size(12.)
                         .font_weight(FontWeight::BOLD)
                         .color(palette.title)
-                        .width(Size::fill()),
+                        .text_align(TextAlign::Center),
                 ),
         )
         .child(mini_cycle_button(
@@ -375,8 +407,11 @@ fn mini_cycle_button(
     };
 
     let mut button = rect()
-        .width(Size::px(28.))
-        .height(Size::px(28.))
+        .horizontal()
+        .width(Size::px(MINI_CYCLE_BUTTON))
+        .height(Size::px(MINI_CYCLE_BUTTON))
+        .main_align(Alignment::Center)
+        .cross_align(Alignment::Center)
         .background(bg)
         .corner_radius(8.)
         .border(palette.border())
@@ -385,7 +420,8 @@ fn mini_cycle_button(
                 .text(chevron.to_string())
                 .font_size(16.)
                 .font_weight(FontWeight::BOLD)
-                .color(text_color),
+                .color(text_color)
+                .text_align(TextAlign::Center),
         );
 
     if enabled {
@@ -457,8 +493,10 @@ fn toggle_popover(ctx: &mut RendererContext) {
     if let Some(id) = POPOVER_ID.with(|c| c.get()) {
         if let Some(app) = ctx.windows.get_mut(&id) {
             let visible = app.window().is_visible().unwrap_or(false);
-            app.window().set_visible(!visible);
-            if !visible {
+            if visible {
+                app.window().set_visible(false);
+            } else {
+                app.window().set_visible(true);
                 app.window().focus_window();
             }
             return;
@@ -486,7 +524,7 @@ fn toggle_popover(ctx: &mut RendererContext) {
     let id = ctx.launch_window(
         WindowConfig::new(menubar_popover)
             .with_title("Osman Mini")
-            .with_size(360., 210.)
+            .with_size(POPOVER_WIDTH, POPOVER_HEIGHT)
             .with_decorations(false)
             .with_background(mini_palette().panel),
     );
@@ -584,15 +622,154 @@ fn menubar_tooltip(snapshot: &NetworkSnapshot) -> String {
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use freya::prelude::*;
+    use freya_testing::prelude::*;
+
     use super::{
-        cycle_mini_target, mini_target_count, normalize_target_index, request_about_window,
-        resolve_mini_target, set_mini_target_index, set_renderer_dispatch_for_test,
+        cycle_mini_target, mini_target_count, mini_target_header, normalize_target_index,
+        request_about_window, resolve_mini_target, set_mini_target_index,
+        set_renderer_dispatch_for_test, MINI_CYCLE_BUTTON, MINI_SPARK_HEIGHT, MINI_STAT_HEIGHT,
+        POPOVER_HEIGHT, POPOVER_WIDTH,
     };
     use crate::mock_traffic;
     use crate::network::{InterfaceStats, NetworkSnapshot};
+    use crate::theme::Palette;
 
     fn reset_target_index() {
         set_mini_target_index(0);
+    }
+
+    #[test]
+    fn mini_popover_reserves_room_for_sparkline() {
+        let padding = 24.0;
+        let chrome = 3.0 + 18.0 + f64::from(MINI_CYCLE_BUTTON) + f64::from(MINI_STAT_HEIGHT) + 14.0;
+        let gaps = 8.0 * 5.0;
+        let needed = padding + chrome + gaps + f64::from(MINI_SPARK_HEIGHT);
+        assert!(
+            POPOVER_HEIGHT >= needed,
+            "popover {POPOVER_HEIGHT}px is shorter than sparkline layout {needed}px"
+        );
+    }
+
+    fn chevron_button_layouts(test: &TestingRunner) -> Vec<(String, (f32, f32, f32, f32), (f32, f32, f32, f32))> {
+        test.find_many(|node, _element| {
+            let button = node.layout().area;
+            if (button.width() - MINI_CYCLE_BUTTON).abs() > 0.6
+                || (button.height() - MINI_CYCLE_BUTTON).abs() > 0.6
+            {
+                return None;
+            }
+            for child in node.children() {
+                if let Some(label) = Label::try_downcast(child.element().as_ref()) {
+                    if label.text == "‹" || label.text == "›" {
+                        let glyph = child.layout().area;
+                        return Some((
+                            label.text.to_string(),
+                            (button.origin.x, button.origin.y, button.width(), button.height()),
+                            (glyph.origin.x, glyph.origin.y, glyph.width(), glyph.height()),
+                        ));
+                    }
+                }
+            }
+            None
+        })
+    }
+
+    #[test]
+    fn mini_cycle_chevrons_are_centered_inside_both_buttons() {
+        let palette = Palette::default();
+        let snap = mock_traffic::network_snapshot();
+
+        let mut test = TestingRunner::new(
+            move || {
+                let selected = use_state(|| 0usize);
+                rect()
+                    .width(Size::fill())
+                    .height(Size::fill())
+                    .padding(Gaps::new_all(12.))
+                    .child(mini_target_header(
+                        "All Traffic",
+                        true,
+                        palette,
+                        selected,
+                        snap.clone(),
+                    ))
+            },
+            Size2D::new(POPOVER_WIDTH as f32, POPOVER_HEIGHT as f32),
+            |_| {},
+            1.0,
+        )
+        .0;
+        test.sync_and_update();
+
+        let buttons = chevron_button_layouts(&test);
+        assert_eq!(
+            buttons.len(),
+            2,
+            "expected ‹ and › cycle buttons, got {buttons:?}"
+        );
+
+        for (text, button, glyph) in &buttons {
+            let (bx, by, bw, bh) = *button;
+            let (gx, gy, gw, gh) = *glyph;
+            assert!(
+                gx >= bx - 0.5,
+                "{text} overflows left of button: glyph_x={gx} button_x={bx}"
+            );
+            assert!(
+                gx + gw <= bx + bw + 0.5,
+                "{text} overflows right of button: glyph_right={} button_right={}",
+                gx + gw,
+                bx + bw
+            );
+            assert!(
+                gy >= by - 0.5,
+                "{text} overflows top of button: glyph_y={gy} button_y={by}"
+            );
+            assert!(
+                gy + gh <= by + bh + 0.5,
+                "{text} overflows bottom of button: glyph_bottom={} button_bottom={}",
+                gy + gh,
+                by + bh
+            );
+            assert!(
+                gx >= -0.5 && gx + gw <= POPOVER_WIDTH as f32 + 0.5,
+                "{text} glyph clipped by popover: glyph=({gx},{gw}) window={POPOVER_WIDTH}"
+            );
+
+            let button_cx = bx + bw / 2.0;
+            let glyph_cx = gx + gw / 2.0;
+            let button_cy = by + bh / 2.0;
+            let glyph_cy = gy + gh / 2.0;
+            assert!(
+                (glyph_cx - button_cx).abs() <= 5.0,
+                "{text} not centered horizontally: glyph_cx={glyph_cx:.1} button_cx={button_cx:.1}"
+            );
+            assert!(
+                (glyph_cy - button_cy).abs() <= 5.0,
+                "{text} not centered vertically: glyph_cy={glyph_cy:.1} button_cy={button_cy:.1}"
+            );
+        }
+
+        let left = buttons.iter().find(|(t, _, _)| t == "‹").expect("left ‹");
+        let right = buttons.iter().find(|(t, _, _)| t == "›").expect("right ›");
+        let left_x = left.1 .0;
+        let right_x = right.1 .0;
+        let right_edge = right_x + right.1 .2;
+        assert!(
+            left_x >= 11.5,
+            "left button clipped by popover padding: x={left_x}"
+        );
+        assert!(
+            right_edge <= POPOVER_WIDTH as f32 + 0.5,
+            "right button clipped by popover width: left={left:?} right={right:?}"
+        );
+        let left_pad = left_x;
+        let right_pad = POPOVER_WIDTH as f32 - right_edge;
+        assert!(
+            (left_pad - right_pad).abs() <= 1.0,
+            "cycle buttons are not symmetrically inset: left_pad={left_pad} right_pad={right_pad} left={left:?} right={right:?}"
+        );
     }
 
     #[test]

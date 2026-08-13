@@ -52,7 +52,7 @@ pub fn initial_menubar_only() -> bool {
 pub fn settings_screen(
     palette: Palette,
     app_theme: State<AppTheme>,
-    alerts: &AlertEngine,
+    alert_engine: State<AlertEngine>,
     active: bool,
     active_tab: State<SettingsTab>,
     poll_ms: State<u64>,
@@ -86,7 +86,7 @@ pub fn settings_screen(
                     menubar,
                     menubar_only,
                 ),
-                SettingsTab::Alerts => alerts_panel(alerts, palette),
+                SettingsTab::Alerts => alerts_panel(alert_engine, palette),
                 SettingsTab::About => about_panel(palette),
             }),
     )
@@ -209,17 +209,17 @@ fn general_panel(
     )
 }
 
-fn alerts_panel(alerts: &AlertEngine, palette: Palette) -> Element {
+fn alerts_panel(alert_engine: State<AlertEngine>, palette: Palette) -> Element {
     rect()
         .vertical()
         .width(Size::fill())
         .spacing(8.)
         .child(settings_section_heading("Alert rules", palette))
         .child(settings_hint(
-            "Same rules as the Alerts sidebar screen. Editing thresholds ships in Phase 1B.",
+            "Presets and rules match the Alerts sidebar — click a preset or tune individual rules.",
             palette,
         ))
-        .child(alerts_screen(alerts, palette))
+        .child(alerts_screen(alert_engine, palette))
         .into()
 }
 

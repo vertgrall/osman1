@@ -3,6 +3,7 @@ mod about_art;
 mod about_assets;
 mod adapter_table_layout;
 mod adapters;
+mod alert_presets;
 mod alerts;
 mod character_render;
 mod character_timeline;
@@ -280,7 +281,8 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
     let section = *app_section.read();
     let window = *time_window.read();
     let timeline = character_timeline.read().clone();
-    let alerts = alert_engine.read();
+    let alert_engine_state = alert_engine;
+    let recent_alerts = alert_engine_state.read().recent_event_count(alerts::RECENT_ALERT_WINDOW);
     let filter = list_filter.read().clone();
     let selected_conn = selected_connection.read().clone();
     let rate_tracker_snap = rate_tracker.read().clone();
@@ -308,7 +310,8 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
                     selected_connection,
                     started,
                     section,
-                    &alerts,
+                    alert_engine_state,
+                    recent_alerts,
                 ))
                 .child(main_area(
                     section,
@@ -326,7 +329,7 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
                     time_window,
                     window,
                     timeline,
-                    alerts.clone(),
+                    alert_engine_state,
                     list_filter,
                     filter,
                     anim_frame,
@@ -373,7 +376,7 @@ fn main_area(
     time_window: State<TimeWindow>,
     window: TimeWindow,
     timeline: CharacterTimeline,
-    alerts: AlertEngine,
+    alert_engine: State<AlertEngine>,
     list_filter: State<String>,
     filter: String,
     anim_frame: f64,
@@ -399,7 +402,7 @@ fn main_area(
             .child(settings::settings_screen(
                 palette,
                 app_theme,
-                &alerts,
+                alert_engine,
                 true,
                 settings_tab,
                 settings_poll_ms,
@@ -424,7 +427,7 @@ fn main_area(
             time_window,
             window,
             timeline,
-            alerts,
+            alert_engine,
             list_filter,
             filter,
             anim_frame,
@@ -453,7 +456,7 @@ fn main_content(
     time_window: State<TimeWindow>,
     window: TimeWindow,
     timeline: CharacterTimeline,
-    alerts: AlertEngine,
+    alert_engine: State<AlertEngine>,
     list_filter: State<String>,
     filter: String,
     anim_frame: f64,
@@ -575,7 +578,7 @@ fn main_content(
             .padding(Gaps::new_all(16.))
             .spacing(12.)
             .child(section_heading("Alerts", palette))
-            .child(alerts_screen(&alerts, palette))
+            .child(alerts_screen(alert_engine, palette))
             .into(),
         AppSection::Settings => rect().height(Size::px(0.)).into(),
     }
@@ -1116,7 +1119,8 @@ fn sidebar(
     selected_connection: State<Option<ConnectionDetail>>,
     started: Instant,
     active: AppSection,
-    alerts: &AlertEngine,
+    alert_engine: State<AlertEngine>,
+    recent_alerts: usize,
 ) -> Element {
     let uptime = started.elapsed();
     let uptime_label = format!(
@@ -1239,6 +1243,7 @@ fn sidebar(
                     selected,
                     selected_connection,
                     palette,
+                    0,
                 ))
                 .child(nav_item(
                     AppSection::Adapters,
@@ -1247,6 +1252,7 @@ fn sidebar(
                     selected,
                     selected_connection,
                     palette,
+                    0,
                 ))
                 .child(nav_item(
                     AppSection::Processes,
@@ -1255,6 +1261,7 @@ fn sidebar(
                     selected,
                     selected_connection,
                     palette,
+                    0,
                 ))
                 .child(nav_item(
                     AppSection::Connections,
@@ -1263,6 +1270,7 @@ fn sidebar(
                     selected,
                     selected_connection,
                     palette,
+                    0,
                 ))
                 .child(nav_item(
                     AppSection::TrafficCharacter,
@@ -1271,6 +1279,7 @@ fn sidebar(
                     selected,
                     selected_connection,
                     palette,
+                    0,
                 ))
                 .child(nav_item(
                     AppSection::Alerts,
@@ -1279,6 +1288,7 @@ fn sidebar(
                     selected,
                     selected_connection,
                     palette,
+                    recent_alerts,
                 ))
                 .child(nav_item(
                     AppSection::Settings,
@@ -1287,10 +1297,11 @@ fn sidebar(
                     selected,
                     selected_connection,
                     palette,
+                    0,
                 )),
         )
         .child(rect().height(Size::fill()))
-        .child(sidebar_status_footer(palette, alerts))
+        .child(sidebar_status_footer(palette, &alert_engine.read()))
         .into()
 }
 
@@ -1344,15 +1355,22 @@ fn nav_item(
     selected: State<Option<String>>,
     mut selected_connection: State<Option<ConnectionDetail>>,
     palette: Palette,
+    badge: usize,
 ) -> Element {
     let nav_label = match section {
-        AppSection::Overview => "Overview",
-        AppSection::Adapters => "Adapters",
-        AppSection::Processes => "Processes",
-        AppSection::Connections => "Connections",
-        AppSection::TrafficCharacter => "Traffic Character",
-        AppSection::Alerts => "Alerts",
-        AppSection::Settings => "Settings",
+        AppSection::Overview => "Overview".to_string(),
+        AppSection::Adapters => "Adapters".into(),
+        AppSection::Processes => "Processes".into(),
+        AppSection::Connections => "Connections".into(),
+        AppSection::TrafficCharacter => "Traffic Character".into(),
+        AppSection::Alerts => {
+            if badge > 0 {
+                format!("Alerts ({badge})")
+            } else {
+                "Alerts".into()
+            }
+        }
+        AppSection::Settings => "Settings".into(),
     };
     let is_active = active == section;
     let bg = if is_active {

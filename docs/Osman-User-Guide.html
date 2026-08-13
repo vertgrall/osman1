@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Osman User Guide</title>
+  <style>
+    @page { margin: 0.75in; }
+    :root {
+      --bg: #f7f5f0;
+      --panel: #fff;
+      --text: #2c3438;
+      --muted: #6b7a80;
+      --accent: #3d8b6e;
+      --accent2: #d97840;
+      --border: #d8ddd8;
+      --callout: #eef6f1;
+      --warn: #fff6ea;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.45;
+      font-size: 11pt;
+      max-width: 8in;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    h1, h2, h3 { color: #1a2428; page-break-after: avoid; }
+    h1 { font-size: 28pt; margin: 0 0 6px; }
+    .subtitle { color: var(--muted); font-size: 13pt; margin-bottom: 24px; }
+    h2 {
+      font-size: 16pt;
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 4px;
+      margin-top: 28px;
+    }
+    h3 { font-size: 12pt; margin-top: 18px; color: var(--accent); }
+    p { margin: 8px 0; }
+    .hero {
+      background: linear-gradient(135deg, #eef6f1, #fff);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+    }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .callout {
+      background: var(--callout);
+      border-left: 4px solid var(--accent);
+      padding: 10px 14px;
+      margin: 12px 0;
+      border-radius: 0 8px 8px 0;
+    }
+    .analogy {
+      background: var(--warn);
+      border-left: 4px solid var(--accent2);
+      padding: 10px 14px;
+      margin: 12px 0;
+      border-radius: 0 8px 8px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0 16px;
+      font-size: 10pt;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eef2ee; }
+    code, .mono {
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 9.5pt;
+      background: #f0f2f0;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    pre {
+      background: #1e2628;
+      color: #e8efe8;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 9pt;
+      overflow-x: auto;
+      line-height: 1.35;
+    }
+    .flow {
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 9pt;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 12px;
+      border-radius: 8px;
+      white-space: pre;
+      line-height: 1.4;
+    }
+    ul { margin: 6px 0 12px 18px; }
+    li { margin: 4px 0; }
+    .cheat { page-break-inside: avoid; }
+    footer {
+      margin-top: 32px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 9pt;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="hero">
+    <h1>Osman User Guide</h1>
+    <p class="subtitle">See your network breathe — Phase 1 · New Tower · macOS 14+</p>
+    <p><strong>Osman</strong> is a native Mac network monitor. It shows live adapter traffic, processes, connections, traffic patterns, and alerts — from the menu bar or a full window. No root access. No packet capture.</p>
+  </div>
+
+  <div class="analogy">
+    <strong>Analogy — dashboard vs. security camera</strong><br />
+    Think of Osman like a <em>building utility meter</em> plus a <em>front-desk sign-in sheet</em>. The hero chart is total water flow; each adapter is a pipe; connections are who walked through the door and when.
+  </div>
+
+  <h2>1 · Install &amp; first launch</h2>
+  <table>
+    <tr><th>Step</th><th>Action</th><th>What you'll see</th></tr>
+    <tr><td>1</td><td>Open <code>Osman-0.1.0.dmg</code> from Desktop or <code>dist/</code></td><td>Drag-to-Applications window</td></tr>
+    <tr><td>2</td><td>Drag <strong>Osman</strong> → <strong>Applications</strong></td><td>App copied</td></tr>
+    <tr><td>3</td><td>First open: right-click → <strong>Open</strong> (unsigned build)</td><td>Main window + menu bar icon</td></tr>
+    <tr><td>4</td><td>Read the onboarding sheet → <strong>Get Started</strong></td><td>Overview screen</td></tr>
+  </table>
+
+  <h2>2 · Main window map</h2>
+  <div class="flow">┌─────────────────────────────────────────────────────────────┐
+│ SIDEBAR          │  MAIN CONTENT                                │
+│ · Totals         │  · Hero chart (Overview)                     │
+│ · Nav links      │  · Adapter / process / connection tables     │
+│ · Status footer  │  · Settings · Alerts                         │
+└─────────────────────────────────────────────────────────────┘
+         ▲                           ▲
+    Menu bar icon              Same app — click icon for mini view</div>
+
+  <h3>Sidebar sections</h3>
+  <table>
+    <tr><th>Section</th><th>Purpose</th></tr>
+    <tr><td><strong>Overview</strong></td><td>Hero network chart + adapter table with sparklines</td></tr>
+    <tr><td><strong>Adapters</strong></td><td>Full adapter list + detail panel when a row is selected</td></tr>
+    <tr><td><strong>Processes</strong></td><td>Apps using the network (name, PID, rates)</td></tr>
+    <tr><td><strong>Connections</strong></td><td>Live sockets — local/remote, process, transport</td></tr>
+    <tr><td><strong>Traffic Character</strong></td><td>Pattern scopes (steady, batch, pulse, etc.)</td></tr>
+    <tr><td><strong>Alerts</strong></td><td>Rules, presets, recent alert log</td></tr>
+    <tr><td><strong>Settings</strong></td><td>General · Alerts · About</td></tr>
+  </table>
+
+  <h2>3 · Reading the Overview</h2>
+  <ul>
+    <li><strong>Receive</strong> (green lane) — bytes coming <em>in</em></li>
+    <li><strong>Send</strong> (orange lane) — bytes going <em>out</em></li>
+    <li><strong>Total</strong> — combined rate</li>
+    <li><strong>Peak</strong> in the header — highest total rate in the visible window</li>
+  </ul>
+  <div class="callout">
+    <strong>Tip:</strong> Click any adapter row to open the bottom detail panel — statistics, activity chart, top talkers.
+  </div>
+
+  <h2>4 · Menu bar mini monitor</h2>
+  <p>The menu bar icon shows live RX/TX for the selected adapter (or total). Click it for a compact popover.</p>
+  <table>
+    <tr><th>Menu item</th><th>Action</th></tr>
+    <tr><td><strong>About Osman</strong></td><td>Opens the branded About window</td></tr>
+    <tr><td><strong>Quit</strong></td><td>Exit Osman</td></tr>
+  </table>
+  <p>Enable <strong>Menubar only</strong> in Settings → General to hide the Dock icon and run from the tray.</p>
+
+  <h2>5 · Alerts &amp; presets</h2>
+  <p>Osman watches traffic every poll (default 1 second) and can notify you when rules fire.</p>
+
+  <h3>Built-in rules</h3>
+  <table>
+    <tr><th>Rule</th><th>What it catches</th></tr>
+    <tr><td>Total bandwidth spike</td><td>Combined traffic above threshold for N seconds</td></tr>
+    <tr><td>Adapter heavy load</td><td>One interface saturated</td></tr>
+    <tr><td>New outbound public connection</td><td>Process talks to a non-private IP for the first time</td></tr>
+    <tr><td>Wildcard listener</td><td>Process listening on <code>*:port</code></td></tr>
+    <tr><td>Connection fan-out spike</td><td>Many new connections in one poll</td></tr>
+  </table>
+
+  <h3>Alert presets (one-click plays)</h3>
+  <table>
+    <tr><th>Preset</th><th>Best for</th></tr>
+    <tr><td><strong>Balanced</strong></td><td>Everyday use — default mix</td></tr>
+    <tr><td><strong>Security Watch</strong></td><td>Catch new public connections &amp; listeners</td></tr>
+    <tr><td><strong>Quiet Monitor</strong></td><td>Only wildcard + fan-out alerts</td></tr>
+    <tr><td><strong>Developer</strong></td><td>Docker/npm — fewer false positives</td></tr>
+    <tr><td><strong>Metered / Hotspot</strong></td><td>Low bandwidth ceilings on cellular</td></tr>
+    <tr><td><strong>Heavy Download</strong></td><td>Large transfers OK — extreme spikes only</td></tr>
+  </table>
+  <p>Tap a preset card to apply. Manual ± tweaks switch the profile to <strong>Custom</strong>. Click a rule row to toggle On/Off.</p>
+
+  <h2>6 · Settings</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>General</h3>
+      <ul>
+        <li>Poll interval: 0.5s / 1s / 2s</li>
+        <li>Default sidebar on launch</li>
+        <li>Theme picker (9 light themes)</li>
+        <li>Menubar-only mode</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Alerts · About</h3>
+      <ul>
+        <li>Same presets &amp; rules as Alerts screen</li>
+        <li><strong>About Osman…</strong> opens splash window</li>
+        <li>Version &amp; credits</li>
+      </ul>
+    </div>
+  </div>
+  <p>Preferences save automatically to:</p>
+  <pre>~/Library/Application Support/Osman/preferences.json</pre>
+
+  <h2>7 · Privacy &amp; data sources</h2>
+  <table>
+    <tr><th>Osman reads</th><th>Osman does <em>not</em> read</th></tr>
+    <tr>
+      <td>Interface byte counters (<code>sysinfo</code>)</td>
+      <td>Packet payloads / HTTPS content</td>
+    </tr>
+    <tr>
+      <td>Socket lists via macOS tools (<code>nettop</code>, <code>lsof</code>)</td>
+      <td>Keystrokes, files, screen</td>
+    </tr>
+    <tr>
+      <td>Process names tied to connections</td>
+      <td>Cloud upload of your traffic</td>
+    </tr>
+  </table>
+
+  <h2>8 · Themes</h2>
+  <p>Nine light themes tune receive / send / total waveform colors and surface tint. Settings → General → pick a swatch row. Favorites:</p>
+  <ul>
+    <li><strong>Clinical Sage</strong> — default calm monitor</li>
+    <li><strong>Cardinal Scope</strong> — red accent</li>
+    <li><strong>Pine Monitor</strong> — dark green accent</li>
+    <li><strong>Solar Scope</strong> — golden yellow accent</li>
+    <li><strong>Primary Signal</strong> — traffic-light lanes</li>
+  </ul>
+
+  <div class="cheat">
+    <h2>9 · First-week cheat sheet</h2>
+    <table>
+      <tr><th>Goal</th><th>Do this</th></tr>
+      <tr><td>See what's using bandwidth</td><td>Processes → sort by total</td></tr>
+      <tr><td>Find a suspicious outbound</td><td>Alerts → <strong>Security Watch</strong> preset</td></tr>
+      <tr><td>Watch one Wi‑Fi adapter</td><td>Adapters → click row → detail panel</td></tr>
+      <tr><td>Glance while working</td><td>Menu bar icon + menubar-only mode</td></tr>
+      <tr><td>Change colors</td><td>Settings → General → theme swatches</td></tr>
+      <tr><td>About / version</td><td>Tray → About Osman, or Settings → About</td></tr>
+    </table>
+  </div>
+
+  <h2>10 · Troubleshooting</h2>
+  <table>
+    <tr><th>Issue</th><th>Fix</th></tr>
+    <tr><td>Connections / Processes empty</td><td>Grant Terminal privacy access; ensure <code>nettop</code> / <code>lsof</code> work in Terminal</td></tr>
+    <tr><td>Too many alerts</td><td>Try <strong>Developer</strong> or <strong>Quiet Monitor</strong> preset</td></tr>
+    <tr><td>Reset settings</td><td>Quit Osman, delete <code>preferences.json</code>, relaunch</td></tr>
+    <tr><td>App won't open (Gatekeeper)</td><td>Right-click → Open the first time</td></tr>
+  </table>
+
+  <footer>
+    Osman by New Tower · Bellevue, WA · Version 0.1.0 · Aug 2026<br />
+    Guide generated from the Osman1 project. For updates see ROADMAP.md in the repo.
+  </footer>
+
+</body>
+</html>

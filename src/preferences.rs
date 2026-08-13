@@ -9,6 +9,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::theme::AppTheme;
+use crate::alerts::StoredAlertRule;
 
 const FILE_NAME: &str = "preferences.json";
 const LEGACY_ONBOARDING_FLAG: &str = "onboarding_done";
@@ -16,7 +17,7 @@ const LEGACY_ONBOARDING_FLAG: &str = "onboarding_done";
 static STORE: OnceLock<Arc<Mutex<PreferencesStore>>> = OnceLock::new();
 
 /// Persisted preferences (schema v1).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Preferences {
     #[serde(default = "default_poll_ms")]
     pub poll_interval_ms: u64,
@@ -28,6 +29,14 @@ pub struct Preferences {
     pub menubar_only: bool,
     #[serde(default = "default_theme")]
     pub theme: String,
+    #[serde(default)]
+    pub alert_rules: Vec<StoredAlertRule>,
+    #[serde(default = "default_alert_preset")]
+    pub alert_preset: String,
+}
+
+fn default_alert_preset() -> String {
+    "balanced".into()
 }
 
 fn default_theme() -> String {
@@ -50,6 +59,8 @@ impl Default for Preferences {
             onboarding_done: false,
             menubar_only: false,
             theme: default_theme(),
+            alert_rules: Vec::new(),
+            alert_preset: default_alert_preset(),
         }
     }
 }
@@ -171,6 +182,16 @@ impl PreferencesStore {
 
     pub fn set_menubar_only(&mut self, enabled: bool) -> io::Result<()> {
         self.prefs.menubar_only = enabled;
+        self.save()
+    }
+
+    pub fn set_alert_rules(&mut self, rules: Vec<StoredAlertRule>) -> io::Result<()> {
+        self.prefs.alert_rules = rules;
+        self.save()
+    }
+
+    pub fn set_alert_preset(&mut self, preset_id: &str) -> io::Result<()> {
+        self.prefs.alert_preset = preset_id.into();
         self.save()
     }
 
@@ -315,6 +336,31 @@ mod tests {
         assert_eq!(loaded.prefs.default_section, "processes");
         assert!(loaded.prefs.menubar_only);
         assert_eq!(loaded.prefs.app_theme(), AppTheme::SolarScope);
+        let _ = fs::remove_dir_all(store.path.parent().unwrap());
+    }
+
+    #[test]
+    fn alert_rules_round_trip_preferences() {
+        use crate::alerts::AlertEngine;
+        use crate::alerts::StoredAlertRule;
+
+        let (mut store, path, _) = temp_store();
+        store.set_alert_rules(vec![StoredAlertRule {
+            id: 1,
+            threshold_bps: 3_000_000.0,
+            sustained_secs: 12,
+            enabled: false,
+        }])
+        .expect("save rules");
+
+        let loaded = PreferencesStore::load_at(path, std::env::temp_dir().join("unused"));
+        assert_eq!(loaded.prefs.alert_rules.len(), 1);
+        assert!(!loaded.prefs.alert_rules[0].enabled);
+
+        let engine = AlertEngine::from_stored_rules(&loaded.prefs.alert_rules);
+        let rule = engine.rules().iter().find(|r| r.id == 1).expect("rule 1");
+        assert_eq!(rule.threshold_bps, 3_000_000.0);
+        assert_eq!(rule.sustained_secs, 12);
         let _ = fs::remove_dir_all(store.path.parent().unwrap());
     }
 }

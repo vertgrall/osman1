@@ -21,6 +21,8 @@ mod ui_screenshot_harness;
 mod data_health;
 mod detail;
 mod icon_assets;
+mod inspect_view;
+mod instrument_ui;
 mod lfo;
 mod macos_about_menu;
 mod macos_activation;
@@ -66,7 +68,12 @@ use crate::adapter_table_layout::AdapterTableMode;
 use crate::data_health::DataHealth;
 use crate::preferences::PreferencesStore;
 use connection_detail_view::connection_detail_screen;
-use overview_ui::{overview_adapter_table, overview_health_banner, overview_network_hero};
+use inspect_view::{inspect_screen, InspectMode};
+use instrument_ui::{nav_group_heading, sidebar_compact_rates, sidebar_scope_mark};
+use overview_ui::{
+    overview_adapter_table, overview_health_banner, overview_instrument_toolbar,
+    overview_narrative_banner, overview_network_hero,
+};
 use process_detail_view::process_detail_screen;
 use traffic_character_view::traffic_character_screen;
 
@@ -495,6 +502,8 @@ fn main_content(
     rate_tracker_snap: RateTracker,
     traffic_health: DataHealth,
 ) -> Element {
+    let recent_alerts = alert_engine.read().recent_event_count(alerts::RECENT_ALERT_WINDOW);
+
     match section {
         AppSection::Overview => {
             let mut overview = rect()
@@ -507,7 +516,31 @@ fn main_content(
                 overview = overview.child(overview_health_banner(msg, palette));
             }
 
+            let snap = snapshot.clone();
+            let procs = processes.clone();
+            let conns = connections.clone();
+            let rates = live_rates.clone();
+
             overview
+                .child(overview_instrument_toolbar(
+                    &snapshot,
+                    time_window,
+                    window,
+                    recent_alerts,
+                    {
+                        let mut app_section = app_section;
+                        move |_| app_section.set(AppSection::Alerts)
+                    },
+                    palette,
+                ))
+                .child(overview_narrative_banner(
+                    &snap,
+                    &conns,
+                    &procs,
+                    &rates,
+                    window,
+                    palette,
+                ))
                 .child(overview_network_hero(
                     snapshot.clone(),
                     palette,
@@ -517,6 +550,7 @@ fn main_content(
                 ))
                 .child(adapter_stack(
                     &snapshot,
+                    &connections,
                     snapshot.sample_tick,
                     palette,
                     selected,
@@ -537,6 +571,7 @@ fn main_content(
             .child(section_heading("Adapters", palette))
             .child(adapter_stack(
                 &snapshot,
+                &connections,
                 snapshot.sample_tick,
                 palette,
                 selected,
@@ -549,68 +584,66 @@ fn main_content(
             ))
             .into(),
         AppSection::Processes => {
-            if let Some(selected) = selected_proc {
-                processes_detail_view(
-                    processes,
-                    connections,
-                    selected,
-                    live_rates,
-                    rate_tracker_snap,
-                    selected_process,
-                    selected_connection,
-                    app_section,
-                    palette,
-                    snapshot.sample_tick,
-                )
-                .into()
-            } else {
-                rect()
-                    .vertical()
-                    .expanded()
-                    .padding(Gaps::new_all(16.))
-                    .spacing(12.)
-                    .child(section_heading("Processes", palette))
-                    .child(processes_view(
-                        processes,
-                        live_rates,
-                        proc_filter,
-                        process_filter,
-                        selected_process,
-                        palette,
-                    ))
-                    .into()
-            }
+            let mut app_section_proc = app_section;
+            inspect_screen(
+                InspectMode::Processes,
+                processes,
+                connections,
+                live_rates,
+                rate_tracker_snap,
+                proc_filter,
+                process_filter,
+                conn_filter,
+                connection_filter,
+                selected_process,
+                selected_proc,
+                selected_connection,
+                selected_conn,
+                app_section,
+                palette,
+                snapshot.sample_tick,
+                chart_scales,
+                {
+                    let mut app_section = app_section_proc;
+                    move |_| app_section.set(AppSection::Processes)
+                },
+                {
+                    let mut app_section = app_section_proc;
+                    move |_| app_section.set(AppSection::Connections)
+                },
+            )
+            .into()
         }
         AppSection::Connections => {
-            if let Some(selected) = selected_conn {
-                connections_detail_view(
-                    connections,
-                    selected,
-                    live_rates,
-                    rate_tracker_snap,
-                    selected_connection,
-                    palette,
-                    snapshot.sample_tick,
-                    chart_scales,
-                )
-                .into()
-            } else {
-                rect()
-                    .vertical()
-                    .expanded()
-                    .padding(Gaps::new_all(16.))
-                    .spacing(12.)
-                    .child(section_heading("Connections", palette))
-                    .child(connections_list_view(
-                        connections,
-                        live_rates,
-                        conn_filter,
-                        connection_filter,
-                        palette,
-                        selected_connection,
-                    ))
-                    .into()
-            }
+            let mut app_section_conn = app_section;
+            inspect_screen(
+                InspectMode::Connections,
+                processes,
+                connections,
+                live_rates,
+                rate_tracker_snap,
+                proc_filter,
+                process_filter,
+                conn_filter,
+                connection_filter,
+                selected_process,
+                selected_proc,
+                selected_connection,
+                selected_conn,
+                app_section,
+                palette,
+                snapshot.sample_tick,
+                chart_scales,
+                {
+                    let mut app_section = app_section_conn;
+                    move |_| app_section.set(AppSection::Processes)
+                },
+                {
+                    let mut app_section = app_section_conn;
+                    move |_| app_section.set(AppSection::Connections)
+                },
+            )
+            .into()
         }
         AppSection::TrafficCharacter => traffic_character_screen(
             snapshot,
@@ -642,6 +675,7 @@ fn section_needs_animation(_section: AppSection, detail_open: bool) -> bool {
 
 fn adapter_stack(
     snapshot: &NetworkSnapshot,
+    connections: &[ConnectionDetail],
     sample_tick: u64,
     palette: Palette,
     selected: State<Option<String>>,
@@ -661,6 +695,7 @@ fn adapter_stack(
     stack
         .child(overview_adapter_table(
             snapshot,
+            connections,
             palette,
             selected,
             window,
@@ -1191,13 +1226,8 @@ fn sidebar(
                     rect()
                         .horizontal()
                         .spacing(8.)
-                        .child(
-                            rect()
-                                .width(Size::px(28.))
-                                .height(Size::px(28.))
-                                .background(palette.accent)
-                                .corner_radius(14.),
-                        )
+                        .cross_align(Alignment::Center)
+                        .child(sidebar_scope_mark())
                         .child(
                             rect()
                                 .vertical()
@@ -1207,6 +1237,7 @@ fn sidebar(
                                         .text("Osman")
                                         .font_size(22.)
                                         .font_weight(FontWeight::BOLD)
+                                        .font_family("Times New Roman")
                                         .color(palette.title),
                                 )
                                 .child(
@@ -1218,63 +1249,17 @@ fn sidebar(
                         ),
                 ),
         )
+        .child(sidebar_compact_rates(snapshot, palette))
         .child(
             rect()
                 .vertical()
-                .spacing(10.)
-                .padding(Gaps::new_all(12.))
-                .background(palette.bg)
-                .corner_radius(12.)
-                .border(palette.border())
-                .child(
-                    label()
-                        .text("Total (all adapters)")
-                        .font_size(10.)
-                        .font_weight(FontWeight::BOLD)
-                        .color(palette.muted),
-                )
-                .child(sidebar_stat(ProcessLane::Red, snapshot.total_rx_bps, palette))
-                .child(sidebar_stat(ProcessLane::Blue, snapshot.total_tx_bps, palette))
-                .child(sidebar_stat(
-                    ProcessLane::Green,
-                    snapshot.total_rx_bps + snapshot.total_tx_bps,
-                    palette,
-                )),
-        )
-        .child(
-            rect()
-                .vertical()
-                .spacing(6.)
-                .child(
-                    label()
-                        .text("System")
-                        .font_size(10.)
-                        .font_weight(FontWeight::BOLD)
-                        .color(palette.muted),
-                )
-                .child(sidebar_meta(
-                    "Adapters",
-                    snapshot.interfaces.len().to_string(),
-                    palette,
-                ))
-                .child(sidebar_meta(
-                    "Processes",
-                    snapshot.process_count.to_string(),
-                    palette,
-                ))
-                .child(sidebar_meta(
-                    "Connections",
-                    snapshot.connection_count.to_string(),
-                    palette,
-                ))
-                .child(sidebar_meta("Uptime", uptime_label, palette)),
-        )
-        .child(
-            rect()
-                .vertical()
-                .spacing(4.)
-                .child(nav_item(
-                    AppSection::Overview,
+                .spacing(8.)
+                .child(nav_group_heading("MONITOR", palette))
+                .child(nav_group(
+                    &[
+                        AppSection::Overview,
+                        AppSection::Adapters,
+                    ],
                     active,
                     app_section,
                     selected,
@@ -1285,8 +1270,13 @@ fn sidebar(
                     palette,
                     0,
                 ))
-                .child(nav_item(
-                    AppSection::Adapters,
+                .child(nav_group_heading("INSPECT", palette))
+                .child(nav_group(
+                    &[
+                        AppSection::Processes,
+                        AppSection::Connections,
+                        AppSection::TrafficCharacter,
+                    ],
                     active,
                     app_section,
                     selected,
@@ -1297,44 +1287,9 @@ fn sidebar(
                     palette,
                     0,
                 ))
-                .child(nav_item(
-                    AppSection::Processes,
-                    active,
-                    app_section,
-                    selected,
-                    selected_connection,
-                    selected_process,
-                    process_filter,
-                    connection_filter,
-                    palette,
-                    0,
-                ))
-                .child(nav_item(
-                    AppSection::Connections,
-                    active,
-                    app_section,
-                    selected,
-                    selected_connection,
-                    selected_process,
-                    process_filter,
-                    connection_filter,
-                    palette,
-                    0,
-                ))
-                .child(nav_item(
-                    AppSection::TrafficCharacter,
-                    active,
-                    app_section,
-                    selected,
-                    selected_connection,
-                    selected_process,
-                    process_filter,
-                    connection_filter,
-                    palette,
-                    0,
-                ))
-                .child(nav_item(
-                    AppSection::Alerts,
+                .child(nav_group_heading("SYSTEM", palette))
+                .child(nav_group(
+                    &[AppSection::Alerts, AppSection::Settings],
                     active,
                     app_section,
                     selected,
@@ -1344,64 +1299,55 @@ fn sidebar(
                     connection_filter,
                     palette,
                     recent_alerts,
-                ))
-                .child(nav_item(
-                    AppSection::Settings,
-                    active,
-                    app_section,
-                    selected,
-                    selected_connection,
-                    selected_process,
-                    process_filter,
-                    connection_filter,
-                    palette,
-                    0,
                 )),
         )
         .child(rect().height(Size::fill()))
-        .child(sidebar_status_footer(palette, &alert_engine.read()))
+        .child(
+            label()
+                .text(uptime_label)
+                .font_size(10.)
+                .color(palette.muted),
+        )
         .into()
 }
 
-fn sidebar_status_footer(palette: Palette, alerts: &AlertEngine) -> Element {
-    let recent = alerts.events().back();
-    let (status, color) = if let Some(event) = recent {
-        let age = event.at.elapsed();
-        if age < Duration::from_secs(120) {
-            (event.message.clone(), palette.receive)
-        } else {
-            ("Live · 1 Hz sampling".into(), palette.send)
-        }
-    } else {
-        ("Live · 1 Hz sampling".into(), palette.send)
-    };
-
+fn nav_group(
+    sections: &[AppSection],
+    active: AppSection,
+    app_section: State<AppSection>,
+    selected: State<Option<String>>,
+    selected_connection: State<Option<ConnectionDetail>>,
+    selected_process: State<Option<ProcessTraffic>>,
+    process_filter: State<String>,
+    connection_filter: State<String>,
+    palette: Palette,
+    badge: usize,
+) -> Element {
     rect()
         .vertical()
-        .spacing(6.)
-        .child(
-            rect()
-                .horizontal()
-                .spacing(6.)
-                .child(
-                    rect()
-                        .width(Size::px(7.))
-                        .height(Size::px(7.))
-                        .background(color)
-                        .corner_radius(4.),
-                )
-                .child(
-                    label()
-                        .text(status)
-                        .font_size(10.)
-                        .color(color),
-                ),
-        )
-        .child(
-            label()
-                .text(format!("v{}", env!("CARGO_PKG_VERSION")))
-                .font_size(10.)
-                .color(palette.muted),
+        .spacing(2.)
+        .children(
+            sections
+                .iter()
+                .map(|section| {
+                    nav_item(
+                        *section,
+                        active,
+                        app_section,
+                        selected,
+                        selected_connection,
+                        selected_process,
+                        process_filter,
+                        connection_filter,
+                        palette,
+                        if *section == AppSection::Alerts {
+                            badge
+                        } else {
+                            0
+                        },
+                    )
+                })
+                .collect::<Vec<_>>(),
         )
         .into()
 }
@@ -1424,13 +1370,7 @@ fn nav_item(
         AppSection::Processes => "Processes".into(),
         AppSection::Connections => "Connections".into(),
         AppSection::TrafficCharacter => "Traffic Character".into(),
-        AppSection::Alerts => {
-            if badge > 0 {
-                format!("Alerts ({badge})")
-            } else {
-                "Alerts".into()
-            }
-        }
+        AppSection::Alerts => "Alerts".into(),
         AppSection::Settings => "Settings".into(),
     };
     let is_active = active == section;
@@ -1445,6 +1385,22 @@ fn nav_item(
         palette.muted
     };
     let section_set = section;
+    let badge_el: Element = if section == AppSection::Alerts && badge > 0 {
+        rect()
+            .padding(Gaps::new(2., 7., 2., 7.))
+            .background(palette.accent)
+            .corner_radius(8.)
+            .child(
+                label()
+                    .text(badge.to_string())
+                    .font_size(10.)
+                    .font_weight(FontWeight::BOLD)
+                    .color(Color::WHITE),
+            )
+            .into()
+    } else {
+        rect().width(Size::px(0.)).height(Size::px(0.)).into()
+    };
 
     rect()
         .width(Size::fill())
@@ -1464,74 +1420,36 @@ fn nav_item(
             if !matches!(section_set, AppSection::Overview | AppSection::Adapters) {
                 *selected.write_unchecked() = None;
             }
-            if section_set != AppSection::Connections {
+            if !matches!(
+                section_set,
+                AppSection::Processes | AppSection::Connections
+            ) {
                 selected_connection.set(None);
-            }
-            if section_set != AppSection::Processes {
                 selected_process.set(None);
             }
         })
         .child(
-            label()
-                .text(nav_label)
-                .font_size(12.)
-                .font_weight(if is_active {
-                    FontWeight::BOLD
-                } else {
-                    FontWeight::NORMAL
-                })
-                .color(if is_active {
-                    palette.text
-                } else {
-                    text_color
-                }),
-        )
-        .into()
-}
-
-fn sidebar_stat(lane: ProcessLane, rate: f64, palette: Palette) -> Element {
-    rect()
-        .horizontal()
-        .width(Size::fill())
-        .spacing(8.)
-        .child(lane_dot(lane, palette))
-        .child(
             rect()
-                .vertical()
-                .spacing(1.)
+                .horizontal()
+                .width(Size::fill())
+                .cross_align(Alignment::Center)
                 .child(
                     label()
-                        .text(lane.label())
-                        .font_size(10.)
-                        .color(palette.muted),
+                        .text(nav_label)
+                        .font_size(12.)
+                        .font_weight(if is_active {
+                            FontWeight::BOLD
+                        } else {
+                            FontWeight::NORMAL
+                        })
+                        .color(if is_active {
+                            palette.text
+                        } else {
+                            text_color
+                        }),
                 )
-                .child(
-                    label()
-                        .text(format_rate(rate))
-                        .font_size(15.)
-                        .font_weight(FontWeight::BOLD)
-                        .color(lane.color(palette)),
-                ),
-        )
-        .into()
-}
-
-fn sidebar_meta(label_text: &'static str, value: String, palette: Palette) -> Element {
-    rect()
-        .horizontal()
-        .width(Size::fill())
-        .child(
-            label()
-                .text(label_text)
-                .font_size(11.)
-                .color(palette.muted),
-        )
-        .child(
-            label()
-                .text(value)
-                .font_size(11.)
-                .font_weight(FontWeight::BOLD)
-                .color(palette.text),
+                .child(rect().width(Size::flex(1.)))
+                .child(badge_el),
         )
         .into()
 }

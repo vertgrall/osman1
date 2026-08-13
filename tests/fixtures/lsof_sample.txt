@@ -1,0 +1,6 @@
+COMMAND     PID         USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+Chrome     8842         test    32u  IPv4 0x1111111111111111      0t0  TCP 192.168.1.86:62712->104.18.18.125:443 (ESTABLISHED)
+rapportd    691         test     8u  IPv4 0x2222222222222222      0t0  TCP *:49158 (LISTEN)
+rapportd    691         test     9u  IPv6 0x3333333333333333      0t0  TCP *:49158 (LISTEN)
+Cursor     7721         test    12u  IPv4 0x4444444444444444      0t0  TCP *:8080 (LISTEN)
+Cursor     7721         test    14u  IPv4 0x5555555555555555      0t0  TCP 127.0.0.1:8080->127.0.0.1:8081 (ESTABLISHED)

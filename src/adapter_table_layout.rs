@@ -14,8 +14,9 @@ pub const HERO_CHART_HEIGHT: f32 = 280.0;
 
 const RATE_COL_PX: f32 = 92.0;
 const TOTAL_COL_PX: f32 = 100.0;
-pub const ACTIVITY_COL_PX: f32 = 300.0;
-pub const ADAPTER_NAME_COL_PX: f32 = 240.0;
+pub const STATUS_COL_PX: f32 = 64.0;
+pub const ACTIVITY_COL_PX: f32 = 260.0;
+pub const ADAPTER_NAME_COL_PX: f32 = 200.0;
 const CHEVRON_PX: f32 = 16.0;
 
 /// Minimum row width so fixed columns are never pushed off-screen.

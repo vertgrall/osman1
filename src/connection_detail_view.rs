@@ -379,6 +379,142 @@ fn data_source_label(source: DataSource) -> String {
     }
 }
 
+/// Compact detail pane for the split inspector (no back button).
+pub fn connection_detail_pane(
+    conn: ConnectionDetail,
+    live_rates: &[crate::rate_tracker::LiveConnectionRate],
+    rate_tracker: RateTracker,
+    selected_connection: State<Option<ConnectionDetail>>,
+    palette: Palette,
+    sample_tick: u64,
+    mut chart_scales: State<ChartScaleBank>,
+) -> Element {
+    let live = rate_for_connection(live_rates, conn.id);
+    let history = rate_tracker.connection_history(conn.id);
+    let (rx_hist, tx_hist, combined_hist) = history
+        .map(|h| (h.rx, h.tx, h.combined))
+        .unwrap_or_default();
+    let window = TimeWindow::Sec60;
+    let rx = slice_history(&rx_hist, window);
+    let tx = slice_history(&tx_hist, window);
+    let combined = slice_history(&combined_hist, window);
+    let render_max_y = chart_scales
+        .write()
+        .detail_y(conn.id.0, window, &rx, &tx, &combined);
+    let live_rx = live.map(|r| r.rx_bps).unwrap_or(0.0);
+    let live_tx = live.map(|r| r.tx_bps).unwrap_or(0.0);
+    let live_total = live.map(|r| r.combined_bps()).unwrap_or(0.0);
+    let footer = format!(
+        "{} · {} · last 60s",
+        crate::adapters::adapter_title(&conn.interface),
+        conn.remote_label()
+    );
+
+    rect()
+        .vertical()
+        .width(Size::percent(54.))
+        .height(Size::fill())
+        .background(palette.panel)
+        .corner_radius(12.)
+        .border(palette.border())
+        .padding(Gaps::new_all(12.))
+        .spacing(10.)
+        .child(
+            rect()
+                .vertical()
+                .spacing(2.)
+                .child(
+                    label()
+                        .text(conn.remote_label())
+                        .font_size(16.)
+                        .font_weight(FontWeight::BOLD)
+                        .color(palette.title),
+                )
+                .child(
+                    label()
+                        .text(format!(
+                            "{} · pid {} · {}",
+                            conn.process_name, conn.pid, conn.transport
+                        ))
+                        .font_size(11.)
+                        .color(palette.muted),
+                ),
+        )
+        .child(
+            canvas(RenderCallback::new({
+                let rx = rx.clone();
+                let tx = tx.clone();
+                let combined = combined.clone();
+                move |ctx| {
+                    draw_network_activity(ctx, &rx, &tx, &combined, palette, window, render_max_y);
+                }
+            }))
+            .width(Size::fill())
+            .height(Size::px(160.))
+            .key(sample_tick.wrapping_add(conn.id.0)),
+        )
+        .child(
+            rect()
+                .horizontal()
+                .width(Size::fill())
+                .spacing(12.)
+                .child(compact_stat("Receive", format_rate(live_rx), palette.receive, palette))
+                .child(compact_stat("Send", format_rate(live_tx), palette.send, palette))
+                .child(compact_stat(
+                    "Total",
+                    format_rate(live_total),
+                    palette.total,
+                    palette,
+                )),
+        )
+        .child(
+            ScrollView::new()
+                .height(Size::flex(1.))
+                .child(
+                    rect()
+                        .vertical()
+                        .spacing(6.)
+                        .child(kv_row("Local", conn.local_label(), palette, None))
+                        .child(kv_row("Remote", conn.remote_label(), palette, None))
+                        .child(kv_row("State", conn.state.clone(), palette, None))
+                        .child(kv_row(
+                            "Source",
+                            data_source_label(conn.source),
+                            palette,
+                            None,
+                        )),
+                ),
+        )
+        .child(
+            label()
+                .text(footer)
+                .font_size(10.)
+                .color(palette.muted),
+        )
+        .into()
+}
+
+fn compact_stat(label_text: &str, value: String, color: Color, palette: Palette) -> Element {
+    let label_text = label_text.to_string();
+    rect()
+        .vertical()
+        .spacing(2.)
+        .child(
+            label()
+                .text(label_text)
+                .font_size(10.)
+                .color(palette.muted),
+        )
+        .child(
+            label()
+                .text(value)
+                .font_size(14.)
+                .font_weight(FontWeight::BOLD)
+                .color(color),
+        )
+        .into()
+}
+
 const MIN_PEAK_LABEL_WIDTH: f32 = 60.0;
 
 #[cfg(test)]

@@ -267,8 +267,8 @@ Phase 4 ──► Osman Pro (optional)  (history export, GeoIP, webhooks)
 
 | # | Task | Files | Effort |
 |---|------|-------|--------|
-| 1E.1 | Fixture files: sample nettop + lsof output | `tests/fixtures/` | S |
-| 1E.2 | Integration test: fixtures → `TrafficSnapshot` | `detail.rs` test module | M |
+| 1E.1 | ✅ Fixture files: sample nettop + lsof output | `tests/fixtures/` | S |
+| 1E.2 | ✅ Integration test: fixtures → `TrafficSnapshot` | `detail.rs` test module | M |
 | 1E.3 | Adapter friendly names via SCNetwork API or heuristic table | `adapters.rs` — stop hardcoding en0=Wi-Fi | M |
 | 1E.4 | Beta feedback link in Settings (GitHub Issues / email) | `settings_panel` | S |
 
@@ -279,7 +279,7 @@ Phase 4 ──► Osman Pro (optional)  (history export, GeoIP, webhooks)
 - [ ] Process detail screen
 - [ ] Text filters on Processes / Connections
 - [ ] Traffic Character uses live data
-- [ ] 65+ tests, integration fixture test green
+- [x] 65+ tests, integration fixture test green
 
 ---
 

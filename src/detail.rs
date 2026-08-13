@@ -427,8 +427,17 @@ fn append_lsof_listeners(snapshot: &mut TrafficSnapshot) -> (bool, usize) {
     };
     let text = String::from_utf8_lossy(&output.stdout);
     let networks = Networks::new_with_refreshed_list();
-    let mut rows = 0usize;
+    let rows = ingest_lsof_text(&text, snapshot, |local| resolve_interface(&networks, local));
+    (true, rows)
+}
 
+/// Parse `lsof -n -P -i` text into snapshot (testable without subprocess).
+pub fn ingest_lsof_text(
+    text: &str,
+    snapshot: &mut TrafficSnapshot,
+    mut interface_for: impl FnMut(&HostPort) -> String,
+) -> usize {
+    let mut rows = 0usize;
     let mut seen: HashSet<(u32, Option<u16>, String)> = snapshot
         .connections
         .iter()
@@ -459,7 +468,7 @@ fn append_lsof_listeners(snapshot: &mut TrafficSnapshot) -> (bool, usize) {
         let role = parsed.role;
         let direction = direction_for(role, &remote);
         let id = connection_id(pid, &parsed.transport, &local, &remote);
-        let interface = resolve_interface(&networks, &local);
+        let interface = interface_for(&local);
 
         let remote_is_private = is_private_host(&remote.host);
         let remote_is_loopback = is_loopback_host(&remote.host);
@@ -500,7 +509,7 @@ fn append_lsof_listeners(snapshot: &mut TrafficSnapshot) -> (bool, usize) {
         rows += 1;
     }
 
-    (true, rows)
+    rows
 }
 
 fn resolve_interface(networks: &Networks, local: &crate::parse::HostPort) -> String {
@@ -672,5 +681,117 @@ mod tests {
         assert_eq!(snapshot.processes[0].connection_count, 2);
         assert_eq!(snapshot.processes[0].rx_bytes, 1500);
         assert_eq!(snapshot.processes[0].tx_bytes, 300);
+    }
+
+    fn fixture_interface(local: &HostPort) -> String {
+        if local.host == "127.0.0.1" || local.host == "::1" {
+            "lo0".into()
+        } else {
+            "en0".into()
+        }
+    }
+
+    #[test]
+    fn ingest_udp_fixture_populates_udp_flows() {
+        let fixture = include_str!("../tests/fixtures/nettop_udp_sample.txt");
+        let mut snapshot = TrafficSnapshot::default();
+        let rows = ingest_nettop_text(fixture, None, &mut snapshot);
+        assert_eq!(rows, 3);
+        assert!(snapshot.connections.iter().all(|c| c.transport == "UDP"));
+        assert_eq!(snapshot.processes.len(), 3);
+
+        let cursor = snapshot
+            .processes
+            .iter()
+            .find(|p| p.name == "Cursor" && p.pid == 7721)
+            .expect("Cursor UDP process");
+        assert_eq!(cursor.rx_bytes, 800);
+        assert_eq!(cursor.tx_bytes, 120);
+
+        let mdns = snapshot
+            .connections
+            .iter()
+            .find(|c| c.pid == 312)
+            .expect("mDNS UDP flow");
+        assert_eq!(mdns.interface, "en0");
+        assert_eq!(mdns.local_port, Some(5353));
+    }
+
+    #[test]
+    fn ingest_lsof_fixture_adds_listeners_only() {
+        let fixture = include_str!("../tests/fixtures/lsof_sample.txt");
+        let mut snapshot = TrafficSnapshot::default();
+        let rows = ingest_lsof_text(fixture, &mut snapshot, fixture_interface);
+        assert_eq!(rows, 2);
+        assert_eq!(snapshot.connections.len(), 2);
+        assert!(snapshot
+            .connections
+            .iter()
+            .all(|c| c.role == SocketRole::Listener && c.source == DataSource::Lsof));
+        assert!(snapshot.connections.iter().all(|c| c.pid != 8842));
+        assert_eq!(
+            snapshot
+                .connections
+                .iter()
+                .filter(|c| c.pid == 691 && c.local_port == Some(49158))
+                .count(),
+            1,
+            "IPv4/IPv6 listen on the same port should dedupe"
+        );
+        assert!(snapshot
+            .connections
+            .iter()
+            .any(|c| c.pid == 7721 && c.local_port == Some(8080)));
+    }
+
+    #[test]
+    fn fixtures_merge_into_traffic_snapshot() {
+        let mut snapshot = TrafficSnapshot::default();
+        let tcp_rows = ingest_nettop_text(
+            include_str!("../tests/fixtures/nettop_tcp_sample.txt"),
+            None,
+            &mut snapshot,
+        );
+        let udp_rows = ingest_nettop_text(
+            include_str!("../tests/fixtures/nettop_udp_sample.txt"),
+            None,
+            &mut snapshot,
+        );
+        let lsof_rows = ingest_lsof_text(
+            include_str!("../tests/fixtures/lsof_sample.txt"),
+            &mut snapshot,
+            fixture_interface,
+        );
+
+        snapshot.health = crate::data_health::DataHealth {
+            nettop_tcp_ok: true,
+            nettop_udp_ok: true,
+            lsof_ok: true,
+            nettop_rows: tcp_rows + udp_rows,
+            lsof_rows,
+        };
+        snapshot.finalize();
+
+        assert_eq!(tcp_rows, 2);
+        assert_eq!(udp_rows, 3);
+        assert_eq!(lsof_rows, 2);
+        assert_eq!(snapshot.connections.len(), 7);
+        assert_eq!(snapshot.health.nettop_rows, 5);
+        assert_eq!(snapshot.health.lsof_rows, 2);
+        assert!(snapshot.health.overview_banner().is_none());
+
+        assert!(snapshot
+            .connections
+            .iter()
+            .any(|c| c.process_name == "Google Chrome" && c.transport == "TCP"));
+        assert!(snapshot
+            .connections
+            .iter()
+            .any(|c| c.transport == "UDP" && c.pid == 7721));
+        assert!(snapshot
+            .connections
+            .iter()
+            .any(|c| c.source == DataSource::Lsof && c.pid == 691));
+        assert_eq!(snapshot.processes.len(), 5);
     }
 }

@@ -1,8 +1,14 @@
 //! Embedded clinical-scope app icons for window + menubar.
 
+use std::sync::LazyLock;
+
+use freya::elements::image::ImageHandle;
 use freya::prelude::LaunchConfig;
 use freya::tray::Icon as TrayIcon;
 use freya::winit::window::Icon as WindowIcon;
+
+pub static SIDEBAR_SCOPE: LazyLock<ImageHandle> =
+    LazyLock::new(|| crate::about_assets::decode_png("SidebarScope", WINDOW_ICON_BYTES));
 
 pub const MENUBAR_ICON_BYTES: &[u8] = include_bytes!("../resources/icon/MenubarIcon-22.png");
 pub const WINDOW_ICON_BYTES: &[u8] = include_bytes!("../resources/icon/WindowIcon-128.png");

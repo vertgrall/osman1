@@ -410,6 +410,17 @@ mod tests {
     }
 }
 
+/// Compact rate for the menubar title (no unit suffix).
+pub fn format_rate_compact(bytes_per_sec: f64) -> String {
+    if bytes_per_sec >= 1_000_000.0 {
+        format!("{:.1}", bytes_per_sec / 1_000_000.0)
+    } else if bytes_per_sec >= 1_000.0 {
+        format!("{:.1}", bytes_per_sec / 1_000.0)
+    } else {
+        format!("{:.0}", bytes_per_sec)
+    }
+}
+
 pub fn format_rate(bytes_per_sec: f64) -> String {
     if bytes_per_sec >= 1_000_000.0 {
         format!("{:.1} MB/s", bytes_per_sec / 1_000_000.0)

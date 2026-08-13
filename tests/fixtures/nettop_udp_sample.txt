@@ -1,0 +1,7 @@
+time,key,interface,type,bytes_in,bytes_out
+,mDNSResponder.312,,,,,
+,udp4 *:5353<->*:*,en0,Unknow,0,40
+,syslogd.411,,,,,
+,udp4 *:53570<->*:*,lo0,Loop,0,75066
+,Cursor.7721,,,,,
+,udp4 192.168.1.86:57427<->*:*,en0,Unknow,800,120

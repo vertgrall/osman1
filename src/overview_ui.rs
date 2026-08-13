@@ -6,7 +6,7 @@ use freya::prelude::*;
 use crate::adapter_table_layout::{
     AdapterTableLayout, AdapterTableMode, ACTIVITY_COL_PX, ADAPTER_NAME_COL_PX,
     HERO_CHART_HEIGHT, MIN_RATE_LABEL_WIDTH, MIN_SPARKLINE_WIDTH, OVERVIEW_STATIC_ADAPTER_ROWS,
-    SPARKLINE_HEIGHT,
+    SPARKLINE_HEIGHT, STATUS_COL_PX,
 };
 use crate::adapters::{adapter_hardware_hint, adapter_title, scope_id};
 use crate::charts::{
@@ -14,9 +14,18 @@ use crate::charts::{
     ChartScaleBank,
 };
 use crate::data_health::DataHealth;
+use crate::detail::{ConnectionDetail, ProcessTraffic};
+use crate::instrument_ui::{
+    activity_header_label, alerts_chip, overview_narrative_line, primary_adapter_label,
+    primary_adapter_short, personality_badge, time_window_chips,
+};
 use crate::network::{InterfaceStats, NetworkSnapshot};
+use crate::rate_tracker::LiveConnectionRate;
 use crate::theme::{format_rate, Palette, ProcessLane};
 use crate::time_window::{slice_history, TimeWindow};
+use crate::traffic_character::{
+    classify_interface, connections_for_interface, personality_from_character,
+};
 
 pub fn overview_health_banner(message: impl Into<String>, palette: Palette) -> Element {
     let message = message.into();
@@ -35,8 +44,68 @@ pub fn overview_health_banner(message: impl Into<String>, palette: Palette) -> E
         .into()
 }
 
+pub fn overview_instrument_toolbar(
+    snapshot: &NetworkSnapshot,
+    time_window: State<TimeWindow>,
+    window: TimeWindow,
+    alert_count: usize,
+    on_alerts: impl FnMut(Event<MouseEventData>) + 'static,
+    palette: Palette,
+) -> Element {
+    let adapter = primary_adapter_label(snapshot);
+    rect()
+        .horizontal()
+        .width(Size::fill())
+        .cross_align(Alignment::Center)
+        .child(
+            rect()
+                .vertical()
+                .spacing(2.)
+                .child(
+                    label()
+                        .text("Network activity")
+                        .font_size(18.)
+                        .font_weight(FontWeight::BOLD)
+                        .color(palette.title),
+                )
+                .child(
+                    label()
+                        .text(format!("Last {} on {adapter}", window.label()))
+                        .font_size(11.)
+                        .color(palette.muted),
+                ),
+        )
+        .child(rect().width(Size::fill()))
+        .child(
+            rect()
+                .horizontal()
+                .spacing(8.)
+                .cross_align(Alignment::Center)
+                .child(time_window_chips(time_window, window, palette))
+                .child(alerts_chip(alert_count, on_alerts, palette)),
+        )
+        .into()
+}
+
+pub fn overview_narrative_banner(
+    snapshot: &NetworkSnapshot,
+    connections: &[ConnectionDetail],
+    processes: &[ProcessTraffic],
+    live_rates: &[LiveConnectionRate],
+    window: TimeWindow,
+    palette: Palette,
+) -> Element {
+    let line = overview_narrative_line(snapshot, connections, processes, live_rates, window);
+    label()
+        .text(line)
+        .font_size(12.)
+        .color(palette.muted)
+        .into()
+}
+
 pub fn overview_adapter_table(
     snapshot: &NetworkSnapshot,
+    connections: &[ConnectionDetail],
     palette: Palette,
     selected: State<Option<String>>,
     window: TimeWindow,
@@ -59,9 +128,10 @@ pub fn overview_adapter_table(
     }
 
     table
-        .child(overview_adapter_header(palette))
+        .child(overview_adapter_header(palette, window))
         .child(overview_adapter_rows(
             snapshot,
+            connections,
             palette,
             selected,
             window,
@@ -71,15 +141,16 @@ pub fn overview_adapter_table(
         .into()
 }
 
-fn overview_adapter_header(palette: Palette) -> Element {
+fn overview_adapter_header(palette: Palette, window: TimeWindow) -> Element {
     rect()
         .horizontal()
         .width(Size::fill())
         .padding(Gaps::new(0., 0., 8., 0.))
         .spacing(8.)
         .child(header_label_with_min("Adapter", palette, ADAPTER_NAME_COL_PX))
+        .child(header_label_with_min("Status", palette, STATUS_COL_PX))
         .child(header_label_with_min(
-            "Activity (last 60s)",
+            activity_header_label(window),
             palette,
             ACTIVITY_COL_PX,
         ))
@@ -124,6 +195,7 @@ pub fn interfaces_for_table<'a>(
 
 fn overview_adapter_rows(
     snapshot: &NetworkSnapshot,
+    connections: &[ConnectionDetail],
     palette: Palette,
     selected: State<Option<String>>,
     window: TimeWindow,
@@ -150,6 +222,7 @@ fn overview_adapter_rows(
         .map(|(index, iface)| {
             overview_adapter_row(
                 iface,
+                connections,
                 index + 1 == interfaces.len(),
                 palette,
                 selected,
@@ -172,6 +245,7 @@ fn overview_adapter_rows(
 
 fn overview_adapter_row(
     iface: &InterfaceStats,
+    connections: &[ConnectionDetail],
     is_last: bool,
     palette: Palette,
     selected: State<Option<String>>,
@@ -181,6 +255,12 @@ fn overview_adapter_row(
     let iface_name = iface.name.clone();
     let title = adapter_title(&iface.name);
     let hardware = adapter_hardware_hint(&iface.name);
+    let iface_conns: Vec<ConnectionDetail> = connections_for_interface(&iface.name, connections)
+        .into_iter()
+        .cloned()
+        .collect();
+    let (character, _) = classify_interface(iface, &iface_conns);
+    let personality = personality_from_character(character);
     let is_selected = selected.peek().as_ref() == Some(&iface_name);
     let row_bg = if is_selected {
         Color::from_argb(40, palette.receive.r(), palette.receive.g(), palette.receive.b())
@@ -265,6 +345,12 @@ fn overview_adapter_row(
                                 .color(status_color),
                         ),
                 ),
+        )
+        .child(
+            rect()
+                .width(Size::px(STATUS_COL_PX))
+                .min_width(Size::px(STATUS_COL_PX))
+                .child(personality_badge(personality, palette)),
         )
         .child(
             rect()
@@ -373,39 +459,20 @@ pub fn overview_network_hero(
         .border(palette.border())
         .padding(Gaps::new_all(12.))
         .spacing(8.)
+        .child(overview_legend_row(palette))
         .child(
             rect()
                 .horizontal()
                 .width(Size::fill())
-                .cross_align(Alignment::Center)
+                .main_align(Alignment::End)
                 .child(
-                    rect()
-                        .vertical()
-                        .spacing(2.)
-                        .child(
-                            label()
-                                .text("Network activity")
-                                .font_size(16.)
-                                .font_weight(FontWeight::BOLD)
-                                .color(palette.text),
-                        )
-                        .child(overview_time_window_picker(time_window, window, palette)),
-                )
-                .child(
-                    rect()
-                        .horizontal()
-                        .width(Size::fill())
-                        .main_align(Alignment::End)
-                        .child(
-                            label()
-                                .text(peak_label)
-                                .font_size(11.)
-                                .font_weight(FontWeight::BOLD)
-                                .color(palette.text),
-                        ),
+                    label()
+                        .text(peak_label)
+                        .font_size(11.)
+                        .font_weight(FontWeight::BOLD)
+                        .color(palette.text),
                 ),
         )
-        .child(overview_legend_row(palette))
         .child(
             canvas(RenderCallback::new(move |ctx| {
                 draw_network_activity(
@@ -580,6 +647,7 @@ mod tests {
                     .padding(Gaps::new_all(12.))
                     .child(overview_adapter_table(
                         &snapshot,
+                        &[],
                         palette,
                         selected,
                         TimeWindow::Sec60,
@@ -633,6 +701,7 @@ mod tests {
                     .padding(Gaps::new_all(12.))
                     .child(overview_adapter_table(
                         &snapshot,
+                        &[],
                         palette,
                         selected,
                         TimeWindow::Sec60,
@@ -686,6 +755,7 @@ mod tests {
                     ))
                     .child(overview_adapter_table(
                         &snapshot,
+                        &[],
                         palette,
                         selected,
                         TimeWindow::Sec60,
@@ -769,6 +839,7 @@ mod tests {
                     ))
                     .child(overview_adapter_table(
                         &snapshot,
+                        &[],
                         palette,
                         selected,
                         TimeWindow::Sec60,
@@ -849,6 +920,7 @@ mod tests {
                 let selected = use_state(|| None::<String>);
                 overview_adapter_table(
                     &snapshot,
+                    &[],
                     palette,
                     selected,
                     TimeWindow::Sec60,

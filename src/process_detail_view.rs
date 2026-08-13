@@ -484,6 +484,185 @@ fn kv_row(
         .into()
 }
 
+/// Compact detail pane for the split inspector (no back button).
+pub fn process_detail_pane(
+    proc: ProcessTraffic,
+    mut connections: Vec<ConnectionDetail>,
+    live_rates: &[crate::rate_tracker::LiveConnectionRate],
+    rate_tracker: RateTracker,
+    selected_process: State<Option<ProcessTraffic>>,
+    selected_connection: State<Option<ConnectionDetail>>,
+    app_section: State<crate::AppSection>,
+    palette: Palette,
+    sample_tick: u64,
+    footer: String,
+) -> Element {
+    let pid = proc.pid;
+    let history = rate_tracker.process_history(pid, &connections);
+    let (rx_hist, tx_hist, combined_hist) = history
+        .map(|h| (h.rx, h.tx, h.combined))
+        .unwrap_or_default();
+    let window = TimeWindow::Sec60;
+    let rx = slice_history(&rx_hist, window);
+    let tx = slice_history(&tx_hist, window);
+    let combined = slice_history(&combined_hist, window);
+    let render_max_y = process_chart_scale(&rx, &tx, &combined);
+    let (live_rx, live_tx) = rates_for_pid(live_rates, &connections, pid);
+    let live_total = live_rx + live_tx;
+    let personality =
+        crate::traffic_character::personality_from_history(&combined_hist, live_total);
+
+    connections.sort_by(|a, b| {
+        b.combined_bytes()
+            .partial_cmp(&a.combined_bytes())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let socket_rows: Vec<Element> = connections
+        .iter()
+        .take(8)
+        .map(|conn| {
+            let remote = conn.remote_label();
+            let live = rate_for_connection(live_rates, conn.id)
+                .map(|r| format_rate(r.combined_bps()))
+                .unwrap_or_else(|| "—".into());
+            rect()
+                .horizontal()
+                .width(Size::fill())
+                .padding(Gaps::new(6., 0., 6., 0.))
+                .child(
+                    label()
+                        .text(remote)
+                        .font_size(10.)
+                        .color(palette.text)
+                        .width(Size::flex(1.)),
+                )
+                .child(
+                    label()
+                        .text(live)
+                        .font_size(10.)
+                        .font_weight(FontWeight::BOLD)
+                        .color(palette.receive),
+                )
+                .into()
+        })
+        .collect();
+
+    rect()
+        .vertical()
+        .width(Size::percent(54.))
+        .height(Size::fill())
+        .background(palette.panel)
+        .corner_radius(12.)
+        .border(palette.border())
+        .padding(Gaps::new_all(12.))
+        .spacing(10.)
+        .child(
+            rect()
+                .horizontal()
+                .width(Size::fill())
+                .cross_align(Alignment::Center)
+                .child(
+                    rect()
+                        .vertical()
+                        .spacing(2.)
+                        .child(
+                            label()
+                                .text(proc.name.clone())
+                                .font_size(16.)
+                                .font_weight(FontWeight::BOLD)
+                                .color(palette.title),
+                        )
+                        .child(
+                            label()
+                                .text(format!("pid {}", proc.pid))
+                                .font_size(11.)
+                                .color(palette.muted),
+                        ),
+                )
+                .child(
+                    rect()
+                        .width(Size::fill())
+                        .main_align(Alignment::End)
+                        .child(crate::instrument_ui::personality_badge(
+                            personality,
+                            palette,
+                        )),
+                ),
+        )
+        .child(
+            canvas(RenderCallback::new({
+                let rx = rx.clone();
+                let tx = tx.clone();
+                let combined = combined.clone();
+                move |ctx| {
+                    draw_network_activity(ctx, &rx, &tx, &combined, palette, window, render_max_y);
+                }
+            }))
+            .width(Size::fill())
+            .height(Size::px(160.))
+            .key(sample_tick.wrapping_add(pid as u64)),
+        )
+        .child(
+            rect()
+                .horizontal()
+                .width(Size::fill())
+                .spacing(12.)
+                .child(compact_stat("Receive", format_rate(live_rx), palette.receive, palette))
+                .child(compact_stat("Send", format_rate(live_tx), palette.send, palette))
+                .child(compact_stat(
+                    "Total",
+                    format_rate(live_total),
+                    palette.total,
+                    palette,
+                )),
+        )
+        .child(
+            label()
+                .text(format!("Sockets ({})", connections.len()))
+                .font_size(10.)
+                .font_weight(FontWeight::BOLD)
+                .color(palette.muted),
+        )
+        .child(
+            ScrollView::new()
+                .height(Size::px(120.))
+                .spacing(2.)
+                .children(if socket_rows.is_empty() {
+                    vec![empty_row("No active sockets.".into(), palette)]
+                } else {
+                    socket_rows
+                }),
+        )
+        .child(
+            label()
+                .text(footer)
+                .font_size(10.)
+                .color(palette.muted),
+        )
+        .into()
+}
+
+fn compact_stat(label_text: &str, value: String, color: Color, palette: Palette) -> Element {
+    let label_text = label_text.to_string();
+    rect()
+        .vertical()
+        .spacing(2.)
+        .child(
+            label()
+                .text(label_text)
+                .font_size(10.)
+                .color(palette.muted),
+        )
+        .child(
+            label()
+                .text(value)
+                .font_size(14.)
+                .font_weight(FontWeight::BOLD)
+                .color(color),
+        )
+        .into()
+}
+
 #[cfg(test)]
 mod tests {
     use freya::prelude::*;

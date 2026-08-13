@@ -210,6 +210,52 @@ impl ProtocolKind {
     }
 }
 
+/// Three-way personality badge used on Overview adapters and Inspect rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdapterPersonality {
+    Steady,
+    Bursty,
+    Idle,
+}
+
+impl AdapterPersonality {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Steady => "Steady",
+            Self::Bursty => "Bursty",
+            Self::Idle => "Idle",
+        }
+    }
+}
+
+pub fn personality_from_character(character: TrafficCharacter) -> AdapterPersonality {
+    match character {
+        TrafficCharacter::ListenIdle => AdapterPersonality::Idle,
+        TrafficCharacter::SteadyStream | TrafficCharacter::DuplexInteractive => {
+            AdapterPersonality::Steady
+        }
+        TrafficCharacter::BatchSync
+        | TrafficCharacter::PulseApi
+        | TrafficCharacter::ChaoticMultiplex => AdapterPersonality::Bursty,
+    }
+}
+
+pub fn personality_from_history(combined: &[f64], live_bps: f64) -> AdapterPersonality {
+    if live_bps < 800.0 {
+        return AdapterPersonality::Idle;
+    }
+    if combined.len() < 2 {
+        return AdapterPersonality::Steady;
+    }
+    let (avg, peak) = history_stats(combined);
+    let peak_ratio = if avg > 1.0 { peak / avg } else { peak.max(1.0) };
+    if peak_ratio > 3.2 {
+        AdapterPersonality::Bursty
+    } else {
+        AdapterPersonality::Steady
+    }
+}
+
 pub fn classify_interface(
     stats: &InterfaceStats,
     connections: &[ConnectionDetail],

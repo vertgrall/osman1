@@ -69,7 +69,6 @@ Minimum test count guidance:
 | 0.5 | [phase-0.5-onboarding.md](../design/phase-0.5-onboarding.md) | Shipped |
 | 0.1 | [phase-0.1-clinical-icon.md](../design/phase-0.1-clinical-icon.md) | Shipped |
 | 1A.1 | [phase-1a-preferences.md](../design/phase-1a-preferences.md) | Shipped |
-| 1A | _pending_ | — |
-| 1B | _pending_ | — |
+| 1E | [phase-1e-fixtures.md](../design/phase-1e-fixtures.md) | In progress |
 
 Update this table when starting a new package.

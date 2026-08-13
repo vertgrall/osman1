@@ -13,7 +13,9 @@ use crate::charts::{draw_activity_sparkline, sparkline_scale};
 use crate::icon_assets;
 use crate::network::{InterfaceStats, NetworkSnapshot};
 use crate::preferences;
-use crate::theme::{format_rate, Palette, ProcessLane};
+use crate::instrument_ui::personality_badge;
+use crate::theme::{format_rate, format_rate_compact, Palette, ProcessLane};
+use crate::traffic_character::personality_from_history;
 use crate::time_window::{slice_history, TimeWindow};
 
 const MENU_SHOW: &str = "osman.show";
@@ -239,6 +241,7 @@ fn menubar_popover() -> Element {
     let combined_slice = slice_history(&target.combined_history, TimeWindow::Sec60);
     let can_cycle = count > 1;
     let position_label = format!("{} of {}", index + 1, count);
+    let personality = personality_from_history(&combined_slice, total);
 
     rect()
         .vertical()
@@ -269,24 +272,16 @@ fn menubar_popover() -> Element {
             palette,
             target_index,
             live_snap.clone(),
+            personality,
         ))
         .child(mini_sparkline(
             rx_slice,
             tx_slice,
-            combined_slice,
+            combined_slice.clone(),
             palette,
             _live,
         ))
-        .child(
-            rect()
-                .horizontal()
-                .width(Size::fill())
-                .height(Size::px(MINI_STAT_HEIGHT))
-                .spacing(12.)
-                .child(mini_stat(ProcessLane::Red, target.rx_bps, palette))
-                .child(mini_stat(ProcessLane::Blue, target.tx_bps, palette))
-                .child(mini_stat(ProcessLane::Green, total, palette)),
-        )
+        .child(mini_stats_row(target.rx_bps, target.tx_bps, total, palette))
         .child(
             label()
                 .text(format!("{} · {}", position_label, target.detail))
@@ -336,12 +331,13 @@ fn mini_target_header(
     palette: Palette,
     mut target_index: State<usize>,
     snap: NetworkSnapshot,
+    personality: crate::traffic_character::AdapterPersonality,
 ) -> Element {
     let title = target_label.to_string();
     rect()
         .horizontal()
         .width(Size::fill())
-        .height(Size::px(MINI_CYCLE_BUTTON))
+        .height(Size::px(MINI_CYCLE_BUTTON + 18.))
         .content(Content::flex())
         .cross_align(Alignment::Center)
         .child(mini_cycle_button(
@@ -360,17 +356,23 @@ fn mini_target_header(
         .child(
             rect()
                 .width(Size::flex(1.))
-                .height(Size::px(MINI_CYCLE_BUTTON))
                 .main_align(Alignment::Center)
                 .cross_align(Alignment::Center)
                 .padding(Gaps::new(0., 8., 0., 8.))
                 .child(
-                    label()
-                        .text(title)
-                        .font_size(12.)
-                        .font_weight(FontWeight::BOLD)
-                        .color(palette.title)
-                        .text_align(TextAlign::Center),
+                    rect()
+                        .vertical()
+                        .spacing(4.)
+                        .cross_align(Alignment::Center)
+                        .child(
+                            label()
+                                .text(title)
+                                .font_size(12.)
+                                .font_weight(FontWeight::BOLD)
+                                .color(palette.title)
+                                .text_align(TextAlign::Center),
+                        )
+                        .child(personality_badge(personality, palette)),
                 ),
         )
         .child(mini_cycle_button(
@@ -429,6 +431,54 @@ fn mini_cycle_button(
     }
 
     button.into()
+}
+
+fn mini_stats_row(rx: f64, tx: f64, total: f64, palette: Palette) -> Element {
+    rect()
+        .horizontal()
+        .width(Size::fill())
+        .height(Size::px(MINI_STAT_HEIGHT))
+        .background(palette.bg)
+        .corner_radius(8.)
+        .border(palette.border())
+        .child(mini_stat_column("Receive", rx, palette.receive, palette))
+        .child(mini_stat_divider(palette))
+        .child(mini_stat_column("Send", tx, palette.send, palette))
+        .child(mini_stat_divider(palette))
+        .child(mini_stat_column("Total", total, palette.total, palette))
+        .into()
+}
+
+fn mini_stat_divider(palette: Palette) -> Element {
+    rect()
+        .width(Size::px(1.))
+        .height(Size::px(MINI_STAT_HEIGHT - 12.))
+        .background(palette.panel_edge)
+        .into()
+}
+
+fn mini_stat_column(label_text: &str, rate: f64, color: Color, palette: Palette) -> Element {
+    let label_text = label_text.to_string();
+    rect()
+        .vertical()
+        .width(Size::flex(1.))
+        .main_align(Alignment::Center)
+        .cross_align(Alignment::Center)
+        .spacing(2.)
+        .child(
+            label()
+                .text(label_text)
+                .font_size(9.)
+                .color(palette.muted),
+        )
+        .child(
+            label()
+                .text(format_rate(rate))
+                .font_size(12.)
+                .font_weight(FontWeight::BOLD)
+                .color(color),
+        )
+        .into()
 }
 
 fn mini_stat(lane: ProcessLane, rate: f64, palette: Palette) -> Element {
@@ -598,7 +648,11 @@ fn menubar_title(rx_bps: f64, tx_bps: f64, _target_label: &str) -> String {
     if total < 1.0 {
         "Osman".into()
     } else {
-        format_rate(total)
+        format!(
+            "↓ {}  ↑ {}",
+            format_rate_compact(rx_bps),
+            format_rate_compact(tx_bps)
+        )
     }
 }
 
@@ -693,6 +747,7 @@ mod tests {
                         palette,
                         selected,
                         snap.clone(),
+                        crate::traffic_character::AdapterPersonality::Steady,
                     ))
             },
             Size2D::new(POPOVER_WIDTH as f32, POPOVER_HEIGHT as f32),

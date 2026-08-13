@@ -1,4 +1,4 @@
-time,key,iface,state,rx,tx
+time,key,interface,state,bytes_in,bytes_out
 ,Google Chrome.8842,,,,,
-,tcp4 192.168.1.86:62712<->104.18.18.125:443,en0,EST,1000,200
-,tcp4 192.168.1.86:62713<->8.8.8.8:443,en0,EST,500,100
+,tcp4 192.168.1.86:62712<->104.18.18.125:443,en0,Established,1000,200
+,tcp4 192.168.1.86:62713<->8.8.8.8:443,en0,Established,500,100

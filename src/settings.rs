@@ -6,11 +6,16 @@
 use freya::prelude::*;
 
 use crate::alerts::{alerts_screen, AlertEngine};
+use crate::macos_open;
 use crate::menubar;
 use crate::preferences;
 use crate::theme::{AppTheme, Palette};
 
 use crate::macos_activation;
+
+/// Beta feedback — opens the default mail client with a pre-filled subject.
+pub const BETA_FEEDBACK_MAILTO: &str =
+    "mailto:hello@newtower.com?subject=Osman%20Beta%20Feedback&body=What%20were%20you%20doing%3F%0A%0AWhat%20happened%3F%0A%0A";
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -253,6 +258,26 @@ fn about_panel(palette: Palette) -> Element {
                             .font_weight(FontWeight::BOLD)
                             .color(Color::from_rgb(255, 255, 255)),
                     ),
+            )
+            .child(settings_section_heading("Beta feedback", palette))
+            .child(settings_hint(
+                "Private beta — tell us what broke, what confused you, or what you wish Osman did.",
+                palette,
+            ))
+            .child(
+                rect()
+                    .padding(Gaps::new(10., 16., 10., 16.))
+                    .background(palette.panel)
+                    .corner_radius(8.)
+                    .border(palette.border())
+                    .on_mouse_up(|_| macos_open::open_url(BETA_FEEDBACK_MAILTO))
+                    .child(
+                        label()
+                            .text("Send beta feedback…")
+                            .font_size(13.)
+                            .font_weight(FontWeight::BOLD)
+                            .color(palette.text),
+                    ),
             ),
     )
 }
@@ -445,25 +470,49 @@ fn menubar_only_toggle(
 
 fn theme_picker_section(palette: Palette, app_theme: State<AppTheme>) -> Element {
     let active = *app_theme.read();
+    let light_options: Vec<Element> = AppTheme::LIGHT
+        .iter()
+        .map(|theme| theme_option(*theme, active, palette, app_theme))
+        .collect();
+    let dark_options: Vec<Element> = AppTheme::DARK
+        .iter()
+        .map(|theme| theme_option(*theme, active, palette, app_theme))
+        .collect();
+
     rect()
         .vertical()
         .spacing(8.)
         .child(settings_hint(
-            "Receive, send, and total waveform colors plus surface tint.",
+            "Ten light and four dark palettes — waveform colors pop; some themes use white or black scope plots.",
             palette,
         ))
+        .child(settings_section_heading("Light", palette))
         .child(
             rect()
                 .vertical()
                 .spacing(6.)
-                .children(
-                    AppTheme::ALL
-                        .iter()
-                        .map(|theme| theme_option(*theme, active, palette, app_theme))
-                        .collect::<Vec<_>>(),
-                ),
+                .children(light_options),
+        )
+        .child(settings_section_heading("Dark", palette))
+        .child(
+            rect()
+                .vertical()
+                .spacing(6.)
+                .children(dark_options),
         )
         .into()
+}
+
+fn theme_option_label(theme: AppTheme, preview: Palette) -> String {
+    let mut label = theme.label().to_string();
+    if preview.is_dark {
+        label.push_str(" · Dark");
+    }
+    if let Some(tag) = theme.chart_well_tag() {
+        label.push_str(" · ");
+        label.push_str(tag);
+    }
+    label
 }
 
 fn theme_option(
@@ -504,7 +553,7 @@ fn theme_option(
                 .spacing(2.)
                 .child(
                     label()
-                        .text(theme.label())
+                        .text(theme_option_label(theme, preview))
                         .font_size(12.)
                         .font_weight(if is_active {
                             FontWeight::BOLD
@@ -583,5 +632,11 @@ mod tests {
     fn default_sections_use_known_ids() {
         assert!(DEFAULT_SECTIONS.iter().any(|(id, _)| *id == "overview"));
         assert!(DEFAULT_SECTIONS.iter().any(|(id, _)| *id == "settings"));
+    }
+
+    #[test]
+    fn beta_feedback_mailto_is_configured() {
+        assert!(BETA_FEEDBACK_MAILTO.starts_with("mailto:"));
+        assert!(BETA_FEEDBACK_MAILTO.contains("Osman"));
     }
 }

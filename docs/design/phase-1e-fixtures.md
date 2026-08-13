@@ -68,10 +68,9 @@ Interface in tests is injected (`en0` / `lo0`) so ingest does not call `sysinfo:
 
 ---
 
-## Out of scope (later 1E)
+## Out of scope (later)
 
-- 1E.3 adapter friendly names (SCNetwork)
-- 1E.4 beta feedback link in Settings
+- SCNetwork-based adapter display names (dynamic Wi‑Fi vs Ethernet on `en0`)
 
 ---
 
@@ -79,6 +78,6 @@ Interface in tests is injected (`en0` / `lo0`) so ingest does not call `sysinfo:
 
 | Role | Name | Status | Date |
 |------|------|--------|------|
-| Design | Jon | ☐ Approved ☐ Updated | |
-| Implementation | | ☐ Complete | |
-| Tests | | ☐ Complete (`cargo test`) | |
+| Design | Jon | Approved | Aug 2026 |
+| Implementation | | Complete | Aug 2026 |
+| Tests | | Complete (`cargo test`) | Aug 2026 |

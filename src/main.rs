@@ -26,6 +26,7 @@ mod instrument_ui;
 mod lfo;
 mod macos_about_menu;
 mod macos_activation;
+mod macos_open;
 mod macos_dock_icon;
 mod menubar;
 mod mock_traffic;

@@ -3,7 +3,7 @@
 > **Work in progress** · macOS network monitor · New Tower  
 > Monitor only — no firewall, no root, no packet capture.
 
-**Version today:** `0.1.0` · **Tests:** ~78 · **Stack:** Rust + Freya 0.4
+**Version today:** `0.1.0` · **Tests:** 148 · **Stack:** Rust + Freya 0.4
 
 This document is the **execution plan**. Check boxes in PRs; update status when a phase completes.
 
@@ -269,8 +269,8 @@ Phase 4 ──► Osman Pro (optional)  (history export, GeoIP, webhooks)
 |---|------|-------|--------|
 | 1E.1 | ✅ Fixture files: sample nettop + lsof output | `tests/fixtures/` | S |
 | 1E.2 | ✅ Integration test: fixtures → `TrafficSnapshot` | `detail.rs` test module | M |
-| 1E.3 | Adapter friendly names via SCNetwork API or heuristic table | `adapters.rs` — stop hardcoding en0=Wi-Fi | M |
-| 1E.4 | Beta feedback link in Settings (GitHub Issues / email) | `settings_panel` | S |
+| 1E.3 | ✅ Adapter friendly names (heuristic table) | `adapters.rs` — en0, utun, bridge, llw, … | M |
+| 1E.4 | ✅ Beta feedback link in Settings | `settings.rs` About tab | S |
 
 ### Phase 1 exit checklist
 

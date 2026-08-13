@@ -318,7 +318,8 @@ pub fn draw_activity_sparkline(
         floor,
         plot_h,
         palette.receive,
-        0.30,
+        palette.wave_spark_rx_alpha(),
+        palette,
     );
     draw_area_series_offset(
         ctx,
@@ -329,7 +330,8 @@ pub fn draw_activity_sparkline(
         floor,
         plot_h,
         palette.send,
-        0.24,
+        palette.wave_spark_tx_alpha(),
+        palette,
     );
     draw_line_series_offset(
         ctx,
@@ -340,7 +342,8 @@ pub fn draw_activity_sparkline(
         floor,
         plot_h,
         palette.total,
-        1.4,
+        palette.wave_spark_total_stroke(),
+        palette,
     );
     ctx.canvas.restore();
 }
@@ -420,7 +423,8 @@ pub fn draw_network_activity(
         floor,
         plot_h,
         palette.receive,
-        0.38,
+        palette.wave_rx_fill_alpha(),
+        palette,
     );
     draw_area_series_offset(
         ctx,
@@ -431,7 +435,8 @@ pub fn draw_network_activity(
         floor,
         plot_h,
         palette.send,
-        0.32,
+        palette.wave_tx_fill_alpha(),
+        palette,
     );
     draw_line_series_offset(
         ctx,
@@ -442,7 +447,8 @@ pub fn draw_network_activity(
         floor,
         plot_h,
         palette.total,
-        2.0,
+        palette.wave_total_stroke(),
+        palette,
     );
     draw_axis_labels(
         ctx,
@@ -602,6 +608,7 @@ fn draw_area_series_offset(
     plot_h: f32,
     color: Color,
     fill_alpha: f32,
+    palette: Palette,
 ) {
     if values.len() < 2 {
         return;
@@ -641,11 +648,20 @@ fn draw_area_series_offset(
     }
 
     let stroke = line.detach();
+    let stroke_w = palette.wave_area_stroke();
+    if palette.wave_glow() {
+        let mut glow_paint = Paint::default();
+        glow_paint.set_anti_alias(true);
+        glow_paint.set_style(PaintStyle::Stroke);
+        glow_paint.set_stroke_width(stroke_w * 2.6);
+        glow_paint.set_color4f(color4f(color, 0.20), None);
+        ctx.canvas.draw_path(&stroke, &glow_paint);
+    }
     let mut stroke_paint = Paint::default();
     stroke_paint.set_anti_alias(true);
     stroke_paint.set_style(PaintStyle::Stroke);
-    stroke_paint.set_stroke_width(1.2);
-    stroke_paint.set_color4f(color4f(color, 0.85), None);
+    stroke_paint.set_stroke_width(stroke_w);
+    stroke_paint.set_color4f(color4f(color, palette.wave_line_alpha()), None);
     ctx.canvas.draw_path(&stroke, &stroke_paint);
 }
 
@@ -659,6 +675,7 @@ fn draw_line_series_offset(
     plot_h: f32,
     color: Color,
     stroke_w: f32,
+    palette: Palette,
 ) {
     if values.len() < 2 {
         return;
@@ -678,11 +695,19 @@ fn draw_line_series_offset(
     }
 
     let path = line.detach();
+    if palette.wave_glow() {
+        let mut glow_paint = Paint::default();
+        glow_paint.set_anti_alias(true);
+        glow_paint.set_style(PaintStyle::Stroke);
+        glow_paint.set_stroke_width(stroke_w * 2.8);
+        glow_paint.set_color4f(color4f(color, 0.24), None);
+        ctx.canvas.draw_path(&path, &glow_paint);
+    }
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     paint.set_style(PaintStyle::Stroke);
     paint.set_stroke_width(stroke_w);
-    paint.set_color4f(color4f(color, 0.95), None);
+    paint.set_color4f(color4f(color, palette.wave_line_alpha()), None);
     ctx.canvas.draw_path(&path, &paint);
 }
 
@@ -814,7 +839,16 @@ fn draw_grid_lines(
     grid.set_style(PaintStyle::Stroke);
     grid.set_stroke_width(1.0);
     grid.set_color4f(
-        Color4f::new(gr as f32 / 255.0, gg as f32 / 255.0, gb as f32 / 255.0, 0.35),
+        Color4f::new(
+            gr as f32 / 255.0,
+            gg as f32 / 255.0,
+            gb as f32 / 255.0,
+            if palette.chart_well_is_dark() {
+                0.55
+            } else {
+                0.35
+            },
+        ),
         None,
     );
 

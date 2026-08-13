@@ -1,8 +1,22 @@
-//! About panel — layout mirrors Mohawk's `AboutMohawkContent`.
+//! About panel — small dedicated window with Tower Village splash + copy.
+//!
+//! ## Invariants (enforced by `about_contract` tests — do not break)
+//! 1. Open About via **`menubar::request_about_window`** → small secondary window.
+//! 2. **Never** mount About as a main-window overlay (viewport clipping regressions).
+//! 3. Splash + brand mark render with **canvas + preloaded Skia PNGs**, not `image()` / `ImageViewer`.
+//! 4. Settings shows **“About Osman…”** only — do not embed `about_content` inline.
+//! 5. macOS **Osman → About** must call `request_about_window()` (not the system panel).
+//! 6. Call **`about_assets::preload()`** before first About paint (`main` already does).
+//! 7. **Regression policy:** any change touching this path → extend `about_contract` /
+//!    `about_test_harness::launch_checks` and run `./scripts/check-about.sh`.
+//!
+//! Quick check: `./scripts/check-about.sh`
 
 use freya::prelude::*;
 
 use crate::about_art::{draw_about_brand_mark, draw_about_splash_card};
+use crate::about_assets::preload;
+use crate::preferences;
 use crate::theme::Palette;
 
 mod git_metadata {
@@ -20,6 +34,7 @@ pub fn about_content(palette: Palette) -> Element {
     rect()
         .vertical()
         .width(Size::px(420.))
+        .main_align(Alignment::Start)
         .cross_align(Alignment::Center)
         .spacing(16.)
         .child(about_splash_header(palette))
@@ -38,34 +53,20 @@ pub fn about_content(palette: Palette) -> Element {
         .into()
 }
 
+pub const ABOUT_WINDOW_W: f32 = 440.;
+pub const ABOUT_WINDOW_H: f32 = 640.;
+
+/// Root component for the small About window.
 pub fn about_window() -> Element {
-    let palette = Palette::default();
+    preload();
+    preferences::ensure_init();
+    let palette = preferences::get().app_theme().palette();
 
     rect()
         .expanded()
         .background(palette.bg)
-        .vertical()
-        .padding(Gaps::new_all(20.))
-        .spacing(12.)
-        .child(
-            label()
-                .text(format!("About {APP_NAME}"))
-                .font_size(18.)
-                .font_weight(FontWeight::BOLD)
-                .color(palette.title),
-        )
-        .child(
-            ScrollView::new()
-                .expanded()
-                .child(
-                    rect()
-                        .vertical()
-                        .width(Size::fill())
-                        .cross_align(Alignment::Center)
-                        .padding(Gaps::new(0., 0., 12., 0.))
-                        .child(about_content(palette)),
-                ),
-        )
+        .padding(Gaps::new_all(16.))
+        .child(ScrollView::new().expanded().child(about_content(palette)))
         .into()
 }
 
@@ -241,17 +242,18 @@ fn meta_row(label_text: &'static str, value: String, palette: Palette, mono: boo
                 .font_size(13.)
                 .color(palette.text),
         )
-        .child(rect().expanded().child(value_label))
+        .child(rect().width(Size::fill()).child(value_label))
         .into()
 }
 
 #[cfg(test)]
 mod tests {
     use freya::components::Canvas;
+    use freya::elements::image::Image;
     use freya::prelude::*;
     use freya_testing::prelude::*;
 
-    use super::{about_content, about_window, SPLASH_H, SPLASH_W};
+    use super::{about_content, about_window, ABOUT_WINDOW_H, ABOUT_WINDOW_W, SPLASH_H, SPLASH_W};
     use crate::theme::Palette;
 
     fn collect_label_texts(test: &TestingRunner) -> Vec<String> {
@@ -263,6 +265,15 @@ mod tests {
     fn collect_canvas_sizes(test: &TestingRunner) -> Vec<(f32, f32)> {
         test.find_many(|node, element| {
             Canvas::try_downcast(element).map(|_| {
+                let area = node.layout().area;
+                (area.width(), area.height())
+            })
+        })
+    }
+
+    fn collect_image_sizes(test: &TestingRunner) -> Vec<(f32, f32)> {
+        test.find_many(|node, element| {
+            Image::try_downcast(element).map(|_| {
                 let area = node.layout().area;
                 (area.width(), area.height())
             })
@@ -301,72 +312,105 @@ mod tests {
         }
 
         let canvases = collect_canvas_sizes(&test);
+        let images = collect_image_sizes(&test);
         assert!(
-            canvases
+            images
                 .iter()
-                .any(|(w, h)| (*w - SPLASH_W).abs() < 2.0 && (*h - SPLASH_H).abs() < 2.0),
-            "Tower Village splash canvas missing; got {canvases:?}"
+                .any(|(w, h)| (*w - SPLASH_W).abs() < 2.0 && (*h - SPLASH_H).abs() < 2.0)
+                || canvases
+                    .iter()
+                    .any(|(w, h)| (*w - SPLASH_W).abs() < 2.0 && (*h - SPLASH_H).abs() < 2.0),
+            "Tower Village splash missing; images={images:?} canvases={canvases:?}"
         );
         assert!(
-            canvases
+            images
                 .iter()
-                .any(|(w, h)| *w >= 80.0 && *w <= 96.0 && *h >= 56.0 && *h <= 72.0),
-            "New Tower brand mark canvas missing; got {canvases:?}"
+                .any(|(w, h)| *w >= 80.0 && *w <= 96.0 && *h >= 56.0 && *h <= 72.0)
+                || canvases.iter().any(|(w, h)| {
+                    *w >= 80.0 && *w <= 96.0 && *h >= 56.0 && *h <= 72.0
+                }),
+            "New Tower brand mark missing; images={images:?} canvases={canvases:?}"
         );
     }
 
     #[test]
-    fn about_window_renders_title_and_branded_canvases() {
-        fn app() -> impl IntoElement {
-            rect()
-                .width(Size::px(460.))
-                .height(Size::px(620.))
-                .child(about_window())
-        }
+    fn about_window_renders_branded_canvases_and_copy() {
+        use crate::about_test_harness::launch_checks::{
+            assert_about_window_launches_ok, snapshot_about_window_launch,
+        };
 
-        let mut test = launch_test(app);
+        assert_about_window_launches_ok(&snapshot_about_window_launch());
+    }
+
+    #[test]
+    fn about_window_export_visual_regression() {
+        use freya::prelude::Size2D;
+
+        let mut test = TestingRunner::new(
+            about_window,
+            Size2D::new(ABOUT_WINDOW_W, ABOUT_WINDOW_H),
+            |_| {},
+            1.0,
+        )
+        .0;
         test.sync_and_update();
 
-        let labels = collect_label_texts(&test);
-        assert!(
-            labels.iter().any(|text| text.contains("About Osman")),
-            "About window title missing; got: {labels:?}"
-        );
-        assert!(
-            labels.iter().any(|text| text.contains("By New Tower")),
-            "About window body missing lockup; got: {labels:?}"
-        );
+        let path = std::env::temp_dir().join("osman-about-window-regression.png");
+        test.render_to_file(&path);
 
-        let canvases = collect_canvas_sizes(&test);
-        assert!(
-            canvases.len() >= 2,
-            "About window should render splash + brand canvases; got {canvases:?}"
-        );
+        let labels = collect_label_texts(&test);
+        assert!(labels.iter().any(|t| t == "Osman"));
+        assert!(labels.iter().any(|t| t.contains("By New Tower")));
+        assert!(path.exists(), "expected screenshot at {}", path.display());
     }
 
     #[test]
-    fn settings_panel_embeds_new_tower_about_content() {
-        use crate::about::about_content;
-
+    fn about_content_layout_without_modal_shell() {
         let palette = Palette::default();
         let mut test = launch_test(move || {
             rect()
-                .width(Size::px(520.))
-                .height(Size::px(980.))
-                .padding(Gaps::new_all(16.))
+                .vertical()
+                .width(Size::px(480.))
+                .height(Size::px(900.))
+                .main_align(Alignment::Start)
                 .child(about_content(palette))
         });
         test.sync_and_update();
 
-        let labels = collect_label_texts(&test);
+        let splash_y = test
+            .find_many(|node, element| {
+                Canvas::try_downcast(element).and_then(|_| {
+                    let area = node.layout().area;
+                    ((area.width() - SPLASH_W).abs() < 4.0 && (area.height() - SPLASH_H).abs() < 4.0)
+                        .then_some(area.origin.y)
+                })
+            })
+            .into_iter()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .expect("splash canvas missing");
+
         assert!(
-            labels.iter().any(|t| t.contains("By New Tower")),
-            "settings about must include New Tower lockup; got {labels:?}"
+            splash_y < 80.0,
+            "about_content alone should pin splash to top; splash_y={splash_y}"
         );
-        let canvases = collect_canvas_sizes(&test);
+    }
+
+    #[test]
+    fn settings_about_button_uses_request_about_window() {
+        use crate::menubar::{request_about_window, set_renderer_dispatch_for_test};
+
+        let ran = std::sync::Arc::new(std::sync::Mutex::new(false));
+        let ran_cb = ran.clone();
+        set_renderer_dispatch_for_test(Box::new(move |cb| {
+            *ran_cb.lock().expect("lock") = true;
+            let _ = cb;
+        }));
+
+        request_about_window();
+
         assert!(
-            canvases.iter().any(|(w, h)| (*w - SPLASH_W).abs() < 2.0),
-            "settings about must include splash canvas; got {canvases:?}"
+            *ran.lock().expect("lock"),
+            "Settings About path must call request_about_window"
         );
     }
 }

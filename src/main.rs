@@ -10,6 +10,8 @@ mod clinical_render;
 mod connection_detail_view;
 mod charts;
 #[cfg(test)]
+mod about_contract;
+#[cfg(test)]
 mod about_test_harness;
 #[cfg(test)]
 mod chart_test_harness;
@@ -28,6 +30,7 @@ mod onboarding;
 mod overview_ui;
 mod parse;
 mod particles;
+mod preferences;
 mod rate_tracker;
 mod theme;
 mod time_window;
@@ -48,17 +51,16 @@ use detail::{
     interface_detail_from_traffic, ConnectionDetail, InterfaceDetail, ProcessTraffic,
     TrafficSnapshot,
 };
-use network::{push_history, InterfaceStats, NetworkSnapshot, NetworkTracker, POLL_INTERVAL};
+use network::{push_history, InterfaceStats, NetworkSnapshot, NetworkTracker};
 use rate_tracker::{
     rate_for_connection, rates_for_interface, rates_for_process, LiveConnectionRate, RateTracker,
 };
 use time_window::{slice_history, TimeWindow};
 use sysinfo::Networks;
-use theme::{format_rate, format_total, Palette, ProcessLane};
-use crate::about::about_content;
+use theme::{format_rate, format_total, AppTheme, Palette, ProcessLane};
 use crate::adapter_table_layout::AdapterTableMode;
 use crate::data_health::DataHealth;
-use crate::onboarding::OnboardingStore;
+use crate::preferences::PreferencesStore;
 use connection_detail_view::connection_detail_screen;
 use overview_ui::{overview_adapter_table, overview_health_banner, overview_network_hero};
 use traffic_character_view::traffic_character_screen;
@@ -74,8 +76,22 @@ enum AppSection {
     Settings,
 }
 
+fn section_from_pref(name: &str) -> AppSection {
+    match name {
+        "adapters" => AppSection::Adapters,
+        "processes" => AppSection::Processes,
+        "connections" => AppSection::Connections,
+        "traffic_character" => AppSection::TrafficCharacter,
+        "alerts" => AppSection::Alerts,
+        "settings" => AppSection::Settings,
+        _ => AppSection::Overview,
+    }
+}
+
 fn main() {
     about_assets::preload();
+    preferences::init(PreferencesStore::load());
+    let launch_palette = preferences::get().app_theme().palette();
 
     launch(menubar::with_menubar(
         LaunchConfig::new()
@@ -87,13 +103,15 @@ fn main() {
                 async_io::Timer::after(std::time::Duration::from_millis(250)).await;
                 macos_about_menu::install();
                 macos_dock_icon::install(icon_assets::DOCK_ICON_BYTES);
+                async_io::Timer::after(std::time::Duration::from_millis(750)).await;
+                macos_about_menu::install();
             })
             .with_window(
             WindowConfig::new(app)
                 .with_title("Osman by NT")
                 .with_size(1400., 920.)
                 .with_min_size(1000., 720.)
-                .with_background(Palette::default().bg)
+                .with_background(launch_palette.bg)
                 .with_icon(icon_assets::window_icon()),
             ),
     ));
@@ -115,6 +133,7 @@ pub fn app_demo() -> Element {
 }
 
 fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
+    preferences::ensure_init();
     let is_demo = bootstrap == AppBootstrap::Demo;
     let demo_traffic = is_demo.then(mock_traffic::traffic_snapshot);
     let demo_snapshot = is_demo.then(mock_traffic::network_snapshot);
@@ -125,13 +144,18 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
     let demo_traffic_for_system = demo_traffic.clone();
     let demo_traffic_for_state = demo_traffic;
 
+    let launch_prefs = preferences::get();
+    let initial_section = section_from_pref(&launch_prefs.default_section);
+    let onboarding_done = launch_prefs.onboarding_done;
+    let initial_theme = launch_prefs.app_theme();
+
     let snapshot = use_state(move || demo_snapshot.unwrap_or_default());
     let selected = use_state(|| None::<String>);
     let detail = use_state(|| None::<InterfaceDetail>);
     let anim_time = use_state(|| 0.0f64);
     let character_scopes = use_state(CharacterScopeBank::default);
     let app_started = use_state(move || demo_started.unwrap_or_else(Instant::now));
-    let app_section = use_state(|| AppSection::Overview);
+    let app_section = use_state(move || initial_section);
     let system_traffic = use_state(move || {
         demo_traffic_for_system
             .as_ref()
@@ -147,9 +171,8 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
     let chart_scales = use_state(ChartScaleBank::default);
     let traffic_snapshot = use_state(move || demo_traffic_for_state.unwrap_or_default());
     let selected_connection = use_state(|| None::<ConnectionDetail>);
-    let onboarding_store = OnboardingStore::production();
-    let onboarding_for_gate = onboarding_store.clone();
-    let show_onboarding = use_state(move || !is_demo && !onboarding_for_gate.has_seen());
+    let show_onboarding = use_state(move || !is_demo && !onboarding_done);
+    let app_theme = use_state(move || initial_theme);
 
     if !is_demo {
         use_future(move || {
@@ -185,7 +208,8 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
                 let mut networks = Networks::new_with_refreshed_list();
                 let mut tracker = NetworkTracker::default();
                 loop {
-                    Timer::after(POLL_INTERVAL).await;
+                    let poll = preferences::get().poll_interval();
+                    Timer::after(poll).await;
                     let previous = snapshot.peek().clone();
                     let traffic = TrafficSnapshot::collect();
                     let connection_count = traffic.connection_count();
@@ -196,7 +220,7 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
 
                     let rates = rate_tracker
                         .write_unchecked()
-                        .update(&traffic.connections, POLL_INTERVAL);
+                        .update(&traffic.connections, poll);
 
                     character_timeline
                         .write_unchecked()
@@ -229,13 +253,13 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
                     } else {
                         *detail.write_unchecked() = None;
                     }
-                    Timer::after(POLL_INTERVAL).await;
+                    Timer::after(preferences::get().poll_interval()).await;
                 }
             }
         });
     }
 
-    let palette = Palette::default();
+    let palette = app_theme.read().palette();
     let data = snapshot.read().clone();
     let selected_name = selected.read().clone();
     let detail_data = detail.read().clone();
@@ -281,6 +305,7 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
                     section,
                     data,
                     palette,
+                    app_theme,
                     selected,
                     selected_name,
                     detail_data,
@@ -305,10 +330,13 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
         )
         .child({
             let mut app_section = app_section;
-            crate::onboarding::onboarding_overlay(
+            let show_onboarding = show_onboarding;
+            onboarding::onboarding_overlay(
                 palette,
                 show_onboarding,
-                onboarding_store,
+                move || {
+                    let _ = preferences::with_store(|store| store.set_onboarding_done());
+                },
                 move || app_section.set(AppSection::Settings),
                 || menubar::request_about_window(),
             )
@@ -320,6 +348,7 @@ fn main_content(
     section: AppSection,
     snapshot: NetworkSnapshot,
     palette: Palette,
+    app_theme: State<AppTheme>,
     selected: State<Option<String>>,
     selected_name: Option<String>,
     detail: Option<InterfaceDetail>,
@@ -461,7 +490,7 @@ fn main_content(
             .padding(Gaps::new_all(16.))
             .spacing(12.)
             .child(section_heading("Settings", palette))
-            .child(settings_view(palette))
+            .child(settings_view(palette, app_theme))
             .into(),
     }
 }
@@ -753,14 +782,18 @@ fn list_filter_bar(
         .into()
 }
 
-fn settings_view(palette: Palette) -> Element {
+fn settings_view(palette: Palette, app_theme: State<AppTheme>) -> Element {
     ScrollView::new()
         .expanded()
-        .child(settings_panel(palette))
+        .child(settings_panel(palette, app_theme))
         .into()
 }
 
-fn settings_panel(palette: Palette) -> Element {
+fn settings_panel(palette: Palette, app_theme: State<AppTheme>) -> Element {
+    let sampling_detail = format!(
+        "Network stats refresh every {} ms (edit preferences.json to change).",
+        preferences::get().normalized_poll_ms()
+    );
     rect()
         .vertical()
         .width(Size::fill())
@@ -769,30 +802,49 @@ fn settings_panel(palette: Palette) -> Element {
         .border(palette.border())
         .padding(Gaps::new_all(12.))
         .spacing(14.)
-        .child(
-            rect()
-                .vertical()
-                .spacing(8.)
-                .padding(Gaps::new(8., 0., 8., 0.))
-                .child(
-                    label()
-                        .text("About")
-                        .font_size(14.)
-                        .font_weight(FontWeight::BOLD)
-                        .color(palette.title),
-                )
-                .child(about_content(palette)),
-        )
-        .child(settings_row(
-            "Sampling",
-            "Network stats refresh every second via sysinfo and nettop.",
-            palette,
-        ))
+        .child(about_settings_section(palette))
+        .child(settings_row("Sampling", &sampling_detail, palette))
+        .child(theme_picker_section(palette, app_theme))
         .child(settings_row(
             "Platform",
             "Process and connection views require macOS nettop/lsof.",
             palette,
         ))
+        .into()
+}
+
+fn about_settings_section(palette: Palette) -> Element {
+    rect()
+        .vertical()
+        .spacing(8.)
+        .padding(Gaps::new(8., 0., 8., 0.))
+        .child(
+            label()
+                .text("About")
+                .font_size(14.)
+                .font_weight(FontWeight::BOLD)
+                .color(palette.title),
+        )
+        .child(
+            label()
+                .text("Tower Village splash, New Tower brand mark, version, and credits.")
+                .font_size(11.)
+                .color(palette.muted),
+        )
+        .child(
+            Button::new()
+                .on_press(|_| menubar::request_about_window())
+                .padding(Gaps::new(10., 16., 10., 16.))
+                .background(palette.accent)
+                .corner_radius(8.)
+                .child(
+                    label()
+                        .text("About Osman…")
+                        .font_size(13.)
+                        .font_weight(FontWeight::BOLD)
+                        .color(Color::from_rgb(255, 255, 255)),
+                ),
+        )
         .into()
 }
 
@@ -1052,6 +1104,123 @@ fn settings_row(title: &str, detail: &str, palette: Palette) -> Element {
                 .text(detail.to_string())
                 .font_size(11.)
                 .color(palette.muted),
+        )
+        .into()
+}
+
+fn theme_picker_section(palette: Palette, app_theme: State<AppTheme>) -> Element {
+    let active = *app_theme.read();
+    rect()
+        .vertical()
+        .spacing(8.)
+        .child(
+            label()
+                .text("Theme")
+                .font_size(13.)
+                .font_weight(FontWeight::BOLD)
+                .color(palette.text),
+        )
+        .child(
+            label()
+                .text("Receive, send, and total waveform colors plus surface tint.")
+                .font_size(11.)
+                .color(palette.muted),
+        )
+        .child(
+            rect()
+                .vertical()
+                .spacing(6.)
+                .children(
+                    AppTheme::ALL
+                        .iter()
+                        .map(|theme| theme_option(*theme, active, palette, app_theme))
+                        .collect::<Vec<_>>(),
+                ),
+        )
+        .into()
+}
+
+fn theme_option(
+    theme: AppTheme,
+    active: AppTheme,
+    palette: Palette,
+    mut app_theme: State<AppTheme>,
+) -> Element {
+    let preview = theme.palette();
+    let is_active = theme == active;
+    let bg = if is_active {
+        Color::from_argb(40, preview.receive.r(), preview.receive.g(), preview.receive.b())
+    } else {
+        palette.bg
+    };
+    let border = if is_active {
+        Border::new().fill(preview.accent).width(1.5)
+    } else {
+        palette.border()
+    };
+
+    rect()
+        .horizontal()
+        .width(Size::fill())
+        .padding(Gaps::new(8., 10., 8., 10.))
+        .background(bg)
+        .corner_radius(8.)
+        .border(border)
+        .spacing(10.)
+        .on_mouse_up(move |_| {
+            let _ = preferences::with_store(|store| store.set_theme(theme));
+            app_theme.set(theme);
+        })
+        .child(theme_swatches(preview))
+        .child(
+            rect()
+                .vertical()
+                .spacing(2.)
+                .child(
+                    label()
+                        .text(theme.label())
+                        .font_size(12.)
+                        .font_weight(if is_active {
+                            FontWeight::BOLD
+                        } else {
+                            FontWeight::NORMAL
+                        })
+                        .color(if is_active {
+                            palette.text
+                        } else {
+                            palette.muted
+                        }),
+                )
+                .child(
+                    label()
+                        .text(if is_active {
+                            "Active"
+                        } else {
+                            "Click to apply"
+                        })
+                        .font_size(10.)
+                        .color(palette.muted),
+                ),
+        )
+        .into()
+}
+
+fn theme_swatches(preview: Palette) -> Element {
+    rect()
+        .horizontal()
+        .spacing(4.)
+        .children(
+            [preview.receive, preview.send, preview.total]
+                .into_iter()
+                .map(|color| {
+                    rect()
+                        .width(Size::px(14.))
+                        .height(Size::px(14.))
+                        .corner_radius(7.)
+                        .background(color)
+                        .into()
+                })
+                .collect::<Vec<_>>(),
         )
         .into()
 }

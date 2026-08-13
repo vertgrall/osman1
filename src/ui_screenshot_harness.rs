@@ -5,7 +5,7 @@ mod tests {
     use freya::prelude::*;
     use freya_testing::prelude::*;
 
-    use crate::about::about_window;
+    use crate::about::{about_window, ABOUT_WINDOW_H, ABOUT_WINDOW_W};
     use crate::about_assets;
 
     fn click_nav_item(test: &mut TestingRunner, label: &str) {
@@ -49,7 +49,7 @@ mod tests {
         overview.render_to_file(dir.join("osman-overview-mock.png"));
 
         let mut about =
-            TestingRunner::new(about_window, Size2D::new(460., 620.), |_| {}, 1.0).0;
+            TestingRunner::new(about_window, Size2D::new(ABOUT_WINDOW_W, ABOUT_WINDOW_H), |_| {}, 1.0).0;
         about.sync_and_update();
         about.render_to_file(dir.join("osman-about-window-mock.png"));
 

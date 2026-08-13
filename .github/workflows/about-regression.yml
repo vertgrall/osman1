@@ -1,0 +1,36 @@
+name: About regression
+
+on:
+  push:
+    paths:
+      - "src/about*.rs"
+      - "src/about_*.rs"
+      - "src/about_contract.rs"
+      - "src/menubar.rs"
+      - "src/macos_about_menu.rs"
+      - "src/main.rs"
+      - "src/onboarding.rs"
+      - "resources/brand/**"
+      - "scripts/check-about.sh"
+      - ".github/workflows/about-regression.yml"
+  pull_request:
+    paths:
+      - "src/about*.rs"
+      - "src/about_*.rs"
+      - "src/about_contract.rs"
+      - "src/menubar.rs"
+      - "src/macos_about_menu.rs"
+      - "src/main.rs"
+      - "src/onboarding.rs"
+      - "resources/brand/**"
+      - "scripts/check-about.sh"
+      - ".github/workflows/about-regression.yml"
+
+jobs:
+  about-regression:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run About regression gate
+        run: ./scripts/check-about.sh

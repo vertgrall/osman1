@@ -89,13 +89,15 @@ Phase 4 ──► Osman Pro (optional)  (history export, GeoIP, webhooks)
 
 ---
 
-### 0.3 — Notarization & distribution
+### 0.3 — Notarization & distribution ⏸
+
+**Blocked until Apple Developer cert is available.** Unsigned DMG works today (`./scripts/build-dmg.sh`); Gatekeeper requires right-click → Open.
 
 | # | Task | Files / notes | Effort |
 |---|------|---------------|--------|
 | 0.3a | Apple Developer ID signing | Xcode / `codesign` documented in script | M |
 | 0.3b | Notarize + staple | `xcrun notarytool`, `stapler staple` | M |
-| 0.3c | DMG layout (drag to Applications) | `create-dmg` or `hdiutil` script | S |
+| 0.3c | ✅ DMG layout (drag to Applications) | `scripts/build-dmg.sh` | S |
 | 0.3d | GitHub Release workflow (optional) | `.github/workflows/release.yml` upload DMG | M |
 
 **Acceptance:** Fresh Mac downloads DMG, opens app without "unidentified developer" after notarization.
@@ -156,14 +158,16 @@ Phase 4 ──► Osman Pro (optional)  (history export, GeoIP, webhooks)
 
 ## Phase 1A — Settings & persistence
 
-### 1A.1 — Preferences model
+### 1A.1 — Preferences model ✅
 
 | # | Task | Files | Effort |
 |---|------|-------|--------|
-| 1A.1a | New `src/preferences.rs` — struct + JSON serde | `Preferences { poll_ms, default_section, menubar_only, onboarding_done, … }` | M |
-| 1A.1b | Load/save `~/Library/Application Support/Osman/preferences.json` | Create dir on first run | M |
-| 1A.1c | Load prefs at launch in `main()` before `launch()` | `main.rs` | S |
-| 1A.1d | Tests: round-trip serialize, missing file defaults | `preferences.rs` | S |
+| 1A.1a | ✅ `src/preferences.rs` — struct + JSON serde | `Preferences { poll_interval_ms, default_section, onboarding_done, menubar_only }` | M |
+| 1A.1b | ✅ Load/save `~/Library/Application Support/Osman/preferences.json` | + legacy onboarding flag migration | M |
+| 1A.1c | ✅ Load prefs at launch | `main()` + `ensure_init()` for tests/demo | S |
+| 1A.1d | ✅ Tests: round-trip, defaults, migration | `preferences.rs` | S |
+
+**Design:** [`docs/design/phase-1a-preferences.md`](docs/design/phase-1a-preferences.md)
 
 ### 1A.2 — Settings UI (split About out)
 

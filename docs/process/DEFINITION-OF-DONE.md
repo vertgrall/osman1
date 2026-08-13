@@ -32,6 +32,7 @@ Minimum test count guidance:
 |-----------|---------|
 | New module | ≥2 tests (happy + edge) |
 | UI banner / panel | ≥1 render test + message logic tests |
+| About / branding panel | `./scripts/check-about.sh` + `launch_checks` headless window test |
 | Settings / prefs | round-trip serialize + default load |
 | Chart change | pixel or layout test in harness |
 
@@ -67,6 +68,7 @@ Minimum test count guidance:
 | 0.4 | [phase-0.4-data-health.md](../design/phase-0.4-data-health.md) | Shipped |
 | 0.5 | [phase-0.5-onboarding.md](../design/phase-0.5-onboarding.md) | Shipped |
 | 0.1 | [phase-0.1-clinical-icon.md](../design/phase-0.1-clinical-icon.md) | Shipped |
+| 1A.1 | [phase-1a-preferences.md](../design/phase-1a-preferences.md) | Shipped |
 | 1A | _pending_ | — |
 | 1B | _pending_ | — |
 

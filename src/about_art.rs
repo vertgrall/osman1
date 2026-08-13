@@ -154,6 +154,15 @@ mod tests {
     use crate::about::{about_content, SPLASH_H, SPLASH_W};
     use crate::theme::Palette;
 
+    fn collect_canvas_sizes(test: &TestingRunner) -> Vec<(f32, f32)> {
+        test.find_many(|node, element| {
+            Canvas::try_downcast(element).map(|_| {
+                let area = node.layout().area;
+                (area.width(), area.height())
+            })
+        })
+    }
+
     #[test]
     fn about_content_uses_canvas_splash_and_brand() {
         let palette = Palette::default();
@@ -165,12 +174,7 @@ mod tests {
         });
         test.sync_and_update();
 
-        let canvases = test.find_many(|node, element| {
-            Canvas::try_downcast(element).map(|_| {
-                let area = node.layout().area;
-                (area.width(), area.height())
-            })
-        });
+        let canvases = collect_canvas_sizes(&test);
         assert!(
             canvases.iter().any(|(w, h)| (*w - SPLASH_W).abs() < 2.0 && (*h - SPLASH_H).abs() < 2.0),
             "expected splash canvas ~300×323, got {canvases:?}"

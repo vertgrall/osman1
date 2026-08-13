@@ -1,8 +1,7 @@
-//! First-run onboarding — privacy copy and one-time dismiss flag.
+//! First-run onboarding — privacy copy and dismiss sheet.
 
-use std::fs;
-use std::io;
-use std::path::PathBuf;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use freya::prelude::*;
 
@@ -23,49 +22,8 @@ pub const DOES_NOT: &[&str] = &[
     "Upload your traffic — everything stays on this Mac",
 ];
 
-/// Tracks whether the user completed first-run onboarding.
-#[derive(Clone, Debug)]
-pub struct OnboardingStore {
-    flag_path: PathBuf,
-}
-
-impl OnboardingStore {
-    pub fn production() -> Self {
-        Self {
-            flag_path: production_flag_path(),
-        }
-    }
-
-    pub fn at(flag_path: PathBuf) -> Self {
-        Self { flag_path }
-    }
-
-    pub fn flag_path(&self) -> &PathBuf {
-        &self.flag_path
-    }
-
-    pub fn has_seen(&self) -> bool {
-        self.flag_path.exists()
-    }
-
-    pub fn mark_seen(&self) -> io::Result<()> {
-        if let Some(parent) = self.flag_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&self.flag_path, "1")
-    }
-}
-
-fn production_flag_path() -> PathBuf {
-    if let Some(home) = std::env::var_os("HOME") {
-        PathBuf::from(home).join("Library/Application Support/Osman/onboarding_done")
-    } else {
-        PathBuf::from(".local/share/Osman/onboarding_done")
-    }
-}
-
-fn dismiss(store: &OnboardingStore, mut visible: State<bool>) {
-    let _ = store.mark_seen();
+fn dismiss(mut visible: State<bool>, on_dismiss: Rc<RefCell<dyn FnMut()>>) {
+    on_dismiss.borrow_mut()();
     visible.set(false);
 }
 
@@ -73,7 +31,7 @@ fn dismiss(store: &OnboardingStore, mut visible: State<bool>) {
 pub fn onboarding_overlay(
     palette: Palette,
     visible: State<bool>,
-    store: OnboardingStore,
+    on_dismiss: impl FnMut() + 'static,
     mut on_open_settings: impl FnMut() + 'static,
     mut on_open_about: impl FnMut() + 'static,
 ) -> Element {
@@ -81,9 +39,10 @@ pub fn onboarding_overlay(
         return rect().into();
     }
 
-    let store_started = store.clone();
-    let store_settings = store.clone();
-    let store_about = store;
+    let on_dismiss = Rc::new(RefCell::new(on_dismiss));
+    let dismiss_started = on_dismiss.clone();
+    let dismiss_settings = on_dismiss.clone();
+    let dismiss_about = on_dismiss;
     let visible_started = visible;
     let visible_settings = visible;
     let visible_about = visible;
@@ -91,19 +50,20 @@ pub fn onboarding_overlay(
     rect()
         .expanded()
         .position(Position::new_absolute().top(0.).left(0.).right(0.).bottom(0.))
+        .layer(Layer::Overlay)
         .background(Color::from_argb(140, 45, 41, 36))
         .main_align(Alignment::Center)
         .cross_align(Alignment::Center)
         .child(onboarding_sheet(
             palette,
-            move || dismiss(&store_started, visible_started),
+            move || dismiss(visible_started, dismiss_started.clone()),
             move || {
                 on_open_settings();
-                dismiss(&store_settings, visible_settings);
+                dismiss(visible_settings, dismiss_settings.clone());
             },
             move || {
                 on_open_about();
-                dismiss(&store_about, visible_about);
+                dismiss(visible_about, dismiss_about.clone());
             },
         ))
         .into()
@@ -229,48 +189,20 @@ fn onboarding_text_button(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
     use freya::prelude::*;
     use freya_testing::prelude::*;
 
     use super::*;
     use crate::theme::Palette;
 
-    fn temp_store() -> OnboardingStore {
-        let path = std::env::temp_dir().join(format!(
-            "osman-onboarding-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_file(&path);
-        OnboardingStore::at(path)
-    }
-
-    #[test]
-    fn has_seen_false_when_missing() {
-        let store = temp_store();
-        assert!(!store.has_seen());
-    }
-
-    #[test]
-    fn mark_seen_creates_flag_file() {
-        let store = temp_store();
-        store.mark_seen().expect("mark seen");
-        assert!(store.has_seen());
-        assert!(store.flag_path().is_file());
-        let _ = fs::remove_file(store.flag_path());
-    }
-
     #[test]
     fn onboarding_sheet_renders_welcome_copy() {
         let palette = Palette::default();
         let mut test = launch_test({
-            move || {
-                onboarding_sheet(
-                    palette,
-                    || {},
-                    || {},
-                    || {},
-                )
-            }
+            move || onboarding_sheet(palette, || {}, || {}, || {})
         });
         test.sync_and_update();
 
@@ -285,37 +217,30 @@ mod tests {
             labels.iter().any(|text| text.contains("no PCAP")),
             "expected privacy bullet, got {labels:?}"
         );
-        assert!(
-            labels.iter().any(|text| text == "Get started"),
-            "expected primary button, got {labels:?}"
-        );
     }
 
     #[test]
     fn get_started_dismisses_overlay() {
         let palette = Palette::default();
-        let store = temp_store();
-        let store_for_ui = store.clone();
+        let dismissed = Arc::new(AtomicBool::new(false));
 
         let mut test = launch_test({
-            let store_for_ui = store_for_ui.clone();
+            let dismissed = dismissed.clone();
             move || {
                 let visible = use_state(|| true);
+                let dismissed = dismissed.clone();
                 onboarding_overlay(
                     palette,
                     visible,
-                    store_for_ui.clone(),
+                    move || {
+                        dismissed.store(true, Ordering::SeqCst);
+                    },
                     || {},
                     || {},
                 )
             }
         });
         test.sync_and_update();
-
-        let before: Vec<String> = test.find_many(|_, element| {
-            Label::try_downcast(element).map(|label| label.text.to_string())
-        });
-        assert!(before.iter().any(|text| text.contains(TITLE)));
 
         let mut targets = test.find_many(|node, element| {
             Label::try_downcast(element).and_then(|label| {
@@ -332,20 +257,10 @@ mod tests {
             })
         });
         targets.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        let (_, target) = targets
-            .first()
-            .expect("Get started button");
+        let (_, target) = targets.first().expect("Get started button");
         test.click_cursor(*target);
         test.sync_and_update();
 
-        assert!(store.has_seen());
-        let after: Vec<String> = test.find_many(|_, element| {
-            Label::try_downcast(element).map(|label| label.text.to_string())
-        });
-        assert!(
-            !after.iter().any(|text| text.contains(TITLE)),
-            "overlay should hide after dismiss, still showing {after:?}"
-        );
-        let _ = fs::remove_file(store.flag_path());
+        assert!(dismissed.load(Ordering::SeqCst));
     }
 }

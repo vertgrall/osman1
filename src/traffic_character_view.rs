@@ -1,13 +1,14 @@
 use freya::prelude::*;
 
 use crate::adapters::{adapter_title, scope_id};
-use crate::character_render::{CharacterDrawProfile, CharacterScopeBank};
+use crate::character_render::CharacterScopeBank;
 use crate::character_timeline::{draw_character_timeline, CharacterTimeline};
+use crate::charts::{draw_activity_sparkline, ChartScaleBank};
 use crate::detail::{ConnectionDetail, ProcessTraffic};
 use crate::network::{InterfaceStats, NetworkSnapshot};
 use crate::rate_tracker::{rates_for_interface, LiveConnectionRate};
 use crate::theme::{format_rate, Palette, ProcessLane};
-use crate::time_window::TimeWindow;
+use crate::time_window::{slice_history, TimeWindow};
 use crate::traffic_character::{
     behavior_note, classify_interface, connections_for_interface, top_talker_for_interface,
     ProtocolKind, TrafficCharacter,
@@ -19,11 +20,12 @@ pub fn traffic_character_screen(
     processes: Vec<ProcessTraffic>,
     live_rates: Vec<LiveConnectionRate>,
     palette: Palette,
-    anim_clock: State<f64>,
     character_scopes: State<CharacterScopeBank>,
     timeline: CharacterTimeline,
     window: TimeWindow,
+    chart_scales: State<ChartScaleBank>,
 ) -> Element {
+    let sample_tick = snapshot.sample_tick;
     let mut interfaces = snapshot.interfaces.clone();
     interfaces.sort_by(|a, b| {
         b.combined_bps
@@ -42,10 +44,10 @@ pub fn traffic_character_screen(
                 &processes,
                 &live_rates,
                 palette,
-                anim_clock,
-                character_scopes,
                 &timeline,
                 window,
+                sample_tick,
+                chart_scales,
             )
         })
         .collect();
@@ -68,11 +70,11 @@ pub fn traffic_character_screen(
                 .spacing(12.)
                 .child(
                     label()
-                        .text("Animation legend — demo waveforms (not live traffic)")
+                        .text("Pattern key — how Osman classifies live adapters")
                         .font_size(12.)
                         .color(palette.muted),
                 )
-                .child(character_legend_grid(palette, anim_clock, character_scopes))
+                .child(character_legend_grid(palette, character_scopes))
                 .child(
                     label()
                         .text("Live adapters")
@@ -88,12 +90,11 @@ pub fn traffic_character_screen(
 
 fn character_legend_grid(
     palette: Palette,
-    anim_clock: State<f64>,
     character_scopes: State<CharacterScopeBank>,
 ) -> Element {
     let cards: Vec<Element> = TrafficCharacter::all()
         .into_iter()
-        .map(|character| character_legend_card(character, palette, anim_clock, character_scopes))
+        .map(|character| character_legend_card(character, palette, character_scopes))
         .collect();
 
     let mut rows = Vec::new();
@@ -119,10 +120,8 @@ fn character_legend_grid(
 fn character_legend_card(
     character: TrafficCharacter,
     palette: Palette,
-    anim_clock: State<f64>,
     character_scopes: State<CharacterScopeBank>,
 ) -> Element {
-    let frame_base = (*anim_clock.peek() * 60.0) as u64;
     let scope_key = character.scope_id();
     let card_color = character.primary_color(palette);
 
@@ -138,39 +137,19 @@ fn character_legend_card(
             rect()
                 .horizontal()
                 .spacing(6.)
-                .width(Size::fill())
                 .child(
                     rect()
-                        .horizontal()
-                        .spacing(6.)
-                        .child(
-                            rect()
-                                .width(Size::px(8.))
-                                .height(Size::px(8.))
-                                .background(card_color)
-                                .corner_radius(4.),
-                        )
-                        .child(
-                            label()
-                                .text(character.title())
-                                .font_size(12.)
-                                .font_weight(FontWeight::BOLD)
-                                .color(palette.text),
-                        ),
+                        .width(Size::px(8.))
+                        .height(Size::px(8.))
+                        .background(card_color)
+                        .corner_radius(4.),
                 )
                 .child(
-                    rect()
-                        .padding(Gaps::new(2., 6., 2., 6.))
-                        .background(palette.bg)
-                        .corner_radius(4.)
-                        .border(palette.border())
-                        .child(
-                            label()
-                                .text("Demo")
-                                .font_size(9.)
-                                .font_weight(FontWeight::BOLD)
-                                .color(palette.muted),
-                        ),
+                    label()
+                        .text(character.title())
+                        .font_size(12.)
+                        .font_weight(FontWeight::BOLD)
+                        .color(palette.text),
                 ),
         )
         .child(
@@ -181,21 +160,14 @@ fn character_legend_card(
                 .corner_radius(2.),
         )
         .child(
-            label()
-                .text(format!("Sample · {}", format_rate(character.demo_bps())))
-                .font_size(9.)
-                .color(palette.muted),
-        )
-        .child(
             canvas(RenderCallback::new(move |ctx| {
-                let t = *anim_clock.peek();
                 character_scopes
                     .write_unchecked()
-                    .draw_demo(ctx, character, t, palette);
+                    .draw_demo(ctx, character, palette);
             }))
             .width(Size::fill())
             .height(Size::px(72.))
-            .key(scope_key.wrapping_add(frame_base)),
+            .key(scope_key),
         )
         .child(
             label()
@@ -241,7 +213,7 @@ fn character_table_header(palette: Palette) -> Element {
         palette,
         &[
             ("Adapter", 22.),
-            ("Character Example (Last 60s)", 28.),
+            ("Live traffic (Last 60s)", 28.),
             ("Detected Pattern", 16.),
             ("Behavior Notes", 20.),
             ("Top Talker", 14.),
@@ -256,10 +228,10 @@ fn character_adapter_row(
     processes: &[ProcessTraffic],
     live_rates: &[LiveConnectionRate],
     palette: Palette,
-    anim_clock: State<f64>,
-    character_scopes: State<CharacterScopeBank>,
     timeline: &CharacterTimeline,
     window: TimeWindow,
+    sample_tick: u64,
+    mut chart_scales: State<ChartScaleBank>,
 ) -> Element {
     let iface_connections: Vec<ConnectionDetail> = connections_for_interface(&iface.name, connections)
         .into_iter()
@@ -267,17 +239,24 @@ fn character_adapter_row(
         .collect();
     let (character, _protocol) = classify_interface(iface, &iface_connections);
     let trace_key = scope_id(&iface.name, ProcessLane::Green);
-    let note = behavior_note(character, &iface.name);
+    let mut note = behavior_note(character, &iface.name);
+    if let Some(transition) = timeline.latest_transition_label(&iface.name) {
+        note = format!("{note} · {transition}");
+    }
     let iface_rates = rates_for_interface(live_rates, &iface.name);
     let talker = top_talker_live(&iface_rates, processes, &iface_connections);
     let talker_pct = talker_share_pct_live(&talker, &iface_rates);
     let title = adapter_title(&iface.name);
-    let combined_bps = iface.combined_bps;
-    let time = *anim_clock.peek();
-    let frame_key = (time * 60.0) as u64;
     let segments = timeline.segments_for(&iface.name, window);
     let sample_index = timeline.sample_index();
     let talker_label = format_talker_label(&talker.0);
+
+    let rx = slice_history(&iface.rx_history, window);
+    let tx = slice_history(&iface.tx_history, window);
+    let combined = slice_history(&iface.combined_history, window);
+    let max_y = chart_scales
+        .write()
+        .detail_y(trace_key, window, &rx, &tx, &combined);
 
     rect()
         .horizontal()
@@ -313,20 +292,17 @@ fn character_adapter_row(
                 .spacing(4.)
                 .width(Size::percent(28.))
                 .child(
-                    canvas(RenderCallback::new(move |ctx| {
-                        character_scopes.write_unchecked().draw_live(
-                            ctx,
-                            trace_key,
-                            character,
-                            time,
-                            palette,
-                            CharacterDrawProfile::ADAPTER_ROW,
-                            Some(combined_bps),
-                        );
+                    canvas(RenderCallback::new({
+                        let rx = rx.clone();
+                        let tx = tx.clone();
+                        let combined = combined.clone();
+                        move |ctx| {
+                            draw_activity_sparkline(ctx, &rx, &tx, &combined, palette, max_y);
+                        }
                     }))
                     .width(Size::fill())
                     .height(Size::px(52.))
-                    .key(trace_key.wrapping_add(frame_key)),
+                    .key(trace_key.wrapping_add(sample_tick)),
                 )
                 .child(
                     canvas(RenderCallback::new(move |ctx| {
@@ -450,14 +426,11 @@ pub fn traffic_character_footer(palette: Palette) -> Element {
             rect()
                 .horizontal()
                 .spacing(12.)
-                .child(footer_pill("Color = Direction", palette))
+                .child(footer_pill("Sparkline = last 60s live", palette))
                 .child(footer_lane_chip(ProcessLane::Red, "Receive", palette))
                 .child(footer_lane_chip(ProcessLane::Blue, "Send", palette))
                 .child(footer_lane_chip(ProcessLane::Green, "Total", palette))
-                .child(footer_pill("Motion = Behavior", palette))
-                .child(footer_pill("Smooth = Stream", palette))
-                .child(footer_pill("Saw = Batch", palette))
-                .child(footer_pill("Pulse = API", palette)),
+                .child(footer_pill("Pattern = classified behavior", palette))
         )
         .child(
             rect()
@@ -596,4 +569,70 @@ fn list_header(palette: Palette, columns: &[(&str, f32)]) -> Element {
                 .collect::<Vec<_>>(),
         )
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use freya::prelude::*;
+    use freya_testing::prelude::*;
+
+    use super::*;
+    use crate::charts::ChartScaleBank;
+    use crate::mock_traffic;
+    use crate::theme::Palette;
+    use crate::time_window::TimeWindow;
+
+    fn label_texts(test: &TestingRunner) -> Vec<String> {
+        test.find_many(|_, element| {
+            Label::try_downcast(element).map(|label| label.text.to_string())
+        })
+    }
+
+    #[test]
+    fn traffic_character_has_no_demo_disclaimer() {
+        let snapshot = mock_traffic::network_snapshot();
+        let traffic = mock_traffic::traffic_snapshot();
+        let palette = Palette::default();
+
+        let mut test = launch_test({
+            let snapshot = snapshot.clone();
+            let traffic = traffic.clone();
+            move || {
+                let scopes = use_state(CharacterScopeBank::default);
+                let scales = use_state(ChartScaleBank::default);
+                traffic_character_screen(
+                    snapshot.clone(),
+                    traffic.connections.clone(),
+                    traffic.processes.clone(),
+                    vec![],
+                    palette,
+                    scopes,
+                    CharacterTimeline::default(),
+                    TimeWindow::Sec60,
+                    scales,
+                )
+            }
+        });
+        test.sync_and_update();
+
+        let texts = label_texts(&test);
+        assert!(
+            texts
+                .iter()
+                .all(|t| !t.to_ascii_lowercase().contains("demo")),
+            "demo disclaimer still visible: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("Pattern key")),
+            "missing pattern key: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("Live adapters")),
+            "missing live adapters heading: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("Live traffic")),
+            "missing live traffic column: {texts:?}"
+        );
+    }
 }

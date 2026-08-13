@@ -33,6 +33,10 @@ pub struct Preferences {
     pub alert_rules: Vec<StoredAlertRule>,
     #[serde(default = "default_alert_preset")]
     pub alert_preset: String,
+    #[serde(default)]
+    pub process_filter: String,
+    #[serde(default)]
+    pub connection_filter: String,
 }
 
 fn default_alert_preset() -> String {
@@ -61,6 +65,8 @@ impl Default for Preferences {
             theme: default_theme(),
             alert_rules: Vec::new(),
             alert_preset: default_alert_preset(),
+            process_filter: String::new(),
+            connection_filter: String::new(),
         }
     }
 }
@@ -195,6 +201,16 @@ impl PreferencesStore {
         self.save()
     }
 
+    pub fn set_process_filter(&mut self, filter: &str) -> io::Result<()> {
+        self.prefs.process_filter = filter.into();
+        self.save()
+    }
+
+    pub fn set_connection_filter(&mut self, filter: &str) -> io::Result<()> {
+        self.prefs.connection_filter = filter.into();
+        self.save()
+    }
+
     fn migrate_legacy_onboarding_flag(&mut self) -> bool {
         if self.prefs.onboarding_done {
             let _ = fs::remove_file(&self.legacy_flag_path);
@@ -261,7 +277,13 @@ mod tests {
     use super::*;
 
     fn temp_store() -> (PreferencesStore, PathBuf, PathBuf) {
-        let base = std::env::temp_dir().join(format!("osman-prefs-{}", std::process::id()));
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let base = std::env::temp_dir().join(format!(
+            "osman-prefs-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).expect("temp dir");
         let prefs = base.join("preferences.json");

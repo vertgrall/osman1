@@ -118,6 +118,61 @@ impl RateTracker {
             combined: h.combined.clone(),
         })
     }
+
+    /// Sum per-connection rate histories for every socket owned by `pid`.
+    pub fn process_history(
+        &self,
+        pid: u32,
+        connections: &[ConnectionDetail],
+    ) -> Option<ConnectionTrafficHistory> {
+        let histories: Vec<&ConnectionHistory> = connections
+            .iter()
+            .filter(|c| c.pid == pid)
+            .filter_map(|c| self.histories.get(&c.id.0))
+            .collect();
+        if histories.is_empty() {
+            return None;
+        }
+
+        let max_len = histories
+            .iter()
+            .map(|h| h.combined.len())
+            .max()
+            .unwrap_or(0);
+        let mut rx = vec![0.0; max_len];
+        let mut tx = vec![0.0; max_len];
+
+        for history in histories {
+            let offset = max_len.saturating_sub(history.combined.len());
+            for (i, (&sample_rx, &sample_tx)) in history.rx.iter().zip(history.tx.iter()).enumerate()
+            {
+                rx[offset + i] += sample_rx;
+                tx[offset + i] += sample_tx;
+            }
+        }
+
+        let combined: Vec<f64> = rx.iter().zip(tx.iter()).map(|(r, t)| r + t).collect();
+        Some(ConnectionTrafficHistory { rx, tx, combined })
+    }
+}
+
+pub fn rates_for_pid(
+    rates: &[LiveConnectionRate],
+    connections: &[ConnectionDetail],
+    pid: u32,
+) -> (f64, f64) {
+    let mut rx = 0.0;
+    let mut tx = 0.0;
+    for rate in rates {
+        if connections
+            .iter()
+            .any(|c| c.pid == pid && c.id == rate.connection_id)
+        {
+            rx += rate.rx_bps;
+            tx += rate.tx_bps;
+        }
+    }
+    (rx, tx)
 }
 
 pub fn rates_for_process(rates: &[LiveConnectionRate], process: &str) -> (f64, f64) {
@@ -189,6 +244,40 @@ mod tests {
         let history = tracker.connection_history(id).expect("history");
         assert_eq!(history.rx.len(), 2);
         assert_eq!(history.tx.len(), 2);
+        assert!(history.combined[1] > history.combined[0]);
+    }
+
+    #[test]
+    fn process_history_aggregates_connection_samples() {
+        let mut tracker = RateTracker::default();
+        let interval = Duration::from_secs(1);
+        let conn_a = sample_conn(7, 1000, 500);
+        let conn_b = ConnectionDetail {
+            id: ConnectionId(8),
+            pid: 42,
+            ..conn_a.clone()
+        };
+        let connections = vec![conn_a.clone(), conn_b.clone()];
+
+        tracker.update(&connections, interval);
+        tracker.update(
+            &[
+                ConnectionDetail {
+                    rx_bytes: 2000,
+                    tx_bytes: 900,
+                    ..conn_a
+                },
+                ConnectionDetail {
+                    rx_bytes: 1500,
+                    tx_bytes: 400,
+                    ..conn_b
+                },
+            ],
+            interval,
+        );
+
+        let history = tracker.process_history(42, &connections).expect("history");
+        assert_eq!(history.rx.len(), 2);
         assert!(history.combined[1] > history.combined[0]);
     }
 }

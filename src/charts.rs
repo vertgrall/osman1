@@ -11,6 +11,8 @@ use crate::theme::{format_rate, Palette};
 use crate::time_window::TimeWindow;
 
 pub const MIN_CHART_SCALE: f64 = 512.0;
+/// Floor for connection / process / character sparklines — keeps B/s traffic visible.
+pub const DETAIL_MIN_CHART_SCALE: f64 = 64.0;
 const SCALE_BUMP_RATIO: f64 = 1.04;
 /// Trailing-edge quiet threshold vs locked scale.
 const TRAILING_QUIET_RATIO: f64 = 0.38;
@@ -26,6 +28,7 @@ pub struct StickyChartScale {
 pub struct ChartScaleBank {
     hero: StickyChartScale,
     adapters: std::collections::HashMap<u64, StickyChartScale>,
+    details: std::collections::HashMap<u64, StickyChartScale>,
 }
 
 impl ChartScaleBank {
@@ -52,6 +55,21 @@ impl ChartScaleBank {
             .or_default()
             .resolve(window, rx, tx, combined)
     }
+
+    /// Sticky Y for connection / character charts — no 512 B/s hero floor.
+    pub fn detail_y(
+        &mut self,
+        key: u64,
+        window: TimeWindow,
+        rx: &[f64],
+        tx: &[f64],
+        combined: &[f64],
+    ) -> f64 {
+        self.details
+            .entry(key)
+            .or_default()
+            .resolve_detail(window, rx, tx, combined)
+    }
 }
 
 impl StickyChartScale {
@@ -62,6 +80,27 @@ impl StickyChartScale {
         tx: &[f64],
         combined: &[f64],
     ) -> f64 {
+        self.resolve_with_floor(window, rx, tx, combined, MIN_CHART_SCALE)
+    }
+
+    pub fn resolve_detail(
+        &mut self,
+        window: TimeWindow,
+        rx: &[f64],
+        tx: &[f64],
+        combined: &[f64],
+    ) -> f64 {
+        self.resolve_with_floor(window, rx, tx, combined, DETAIL_MIN_CHART_SCALE)
+    }
+
+    fn resolve_with_floor(
+        &mut self,
+        window: TimeWindow,
+        rx: &[f64],
+        tx: &[f64],
+        combined: &[f64],
+        min_floor: f64,
+    ) -> f64 {
         if self.window != Some(window) {
             self.window = Some(window);
             self.locked = 0.0;
@@ -69,7 +108,7 @@ impl StickyChartScale {
 
         let trailing_max = trailing_peak(combined, 8);
         let live = combined.last().copied().unwrap_or(0.0);
-        let target = natural_scale(trailing_max.max(live), live);
+        let target = natural_scale(trailing_max.max(live), live, min_floor);
 
         if self.locked <= 0.0 {
             self.locked = target;
@@ -78,7 +117,7 @@ impl StickyChartScale {
 
         // Only bump from recent traffic — not peaks scrolling off on the left.
         if trailing_max > self.locked * SCALE_BUMP_RATIO {
-            self.locked = natural_scale(trailing_max.max(live), live);
+            self.locked = natural_scale(trailing_max.max(live), live, min_floor);
             return self.locked;
         }
 
@@ -100,7 +139,7 @@ impl StickyChartScale {
             }
         }
 
-        self.locked.max(MIN_CHART_SCALE)
+        self.locked.max(min_floor)
     }
 }
 
@@ -125,12 +164,12 @@ fn series_peak(rx: &[f64], tx: &[f64], combined: &[f64]) -> f64 {
         .fold(0.0_f64, f64::max)
 }
 
-fn natural_scale(relevant_max: f64, live: f64) -> f64 {
+fn natural_scale(relevant_max: f64, live: f64, min_floor: f64) -> f64 {
     let tail = relevant_max.max(live * 1.1);
     if tail <= 0.0 {
-        return MIN_CHART_SCALE;
+        return min_floor;
     }
-    (tail * 1.18).max(live * 1.8).max(MIN_CHART_SCALE)
+    (tail * 1.18).max(live * 1.8).max(min_floor)
 }
 
 const CHART_LEFT: f32 = 46.0;
@@ -433,7 +472,7 @@ pub fn display_chart_max(locked: f64, rx: &[f64], tx: &[f64], combined: &[f64]) 
     if peak <= 0.0 {
         return locked.max(MIN_CHART_SCALE);
     }
-    let auto = natural_scale(peak, peak);
+    let auto = natural_scale(peak, peak, MIN_CHART_SCALE);
     if locked > auto * 1.5 {
         auto
     } else {
@@ -450,7 +489,11 @@ pub fn sparkline_scale(rx: &[f64], tx: &[f64], combined: &[f64]) -> f64 {
 }
 
 pub fn chart_peak_max(rx: &[f64], tx: &[f64], combined: &[f64]) -> f64 {
-    natural_scale(series_peak(rx, tx, combined), combined.last().copied().unwrap_or(0.0))
+    natural_scale(
+        series_peak(rx, tx, combined),
+        combined.last().copied().unwrap_or(0.0),
+        MIN_CHART_SCALE,
+    )
 }
 
 /// Instant Y scale (no hold). Prefer [`StickyChartScale`] for live charts.
@@ -1002,5 +1045,19 @@ mod tests {
             grid > 30,
             "horizontal grid lines should paint in plot area, got {grid}"
         );
+    }
+
+    #[test]
+    fn detail_y_stays_below_hero_floor_for_bytes_per_second() {
+        let mut bank = ChartScaleBank::default();
+        let rx = vec![0.0, 72.0];
+        let tx = vec![0.0, 0.0];
+        let combined = vec![0.0, 72.0];
+        let y = bank.detail_y(7, TimeWindow::Sec60, &rx, &tx, &combined);
+        assert!(
+            y < MIN_CHART_SCALE,
+            "detail sticky scale must not use 512 B/s hero floor: {y}"
+        );
+        assert!(y >= DETAIL_MIN_CHART_SCALE);
     }
 }

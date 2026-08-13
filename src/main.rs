@@ -34,6 +34,7 @@ mod parse;
 mod particles;
 mod preferences;
 mod rate_tracker;
+mod process_detail_view;
 mod settings;
 mod theme;
 mod time_window;
@@ -66,10 +67,11 @@ use crate::data_health::DataHealth;
 use crate::preferences::PreferencesStore;
 use connection_detail_view::connection_detail_screen;
 use overview_ui::{overview_adapter_table, overview_health_banner, overview_network_hero};
+use process_detail_view::process_detail_screen;
 use traffic_character_view::traffic_character_screen;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum AppSection {
+pub(crate) enum AppSection {
     Overview,
     Adapters,
     Processes,
@@ -173,10 +175,12 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
     let time_window = use_state(TimeWindow::default);
     let character_timeline = use_state(CharacterTimeline::default);
     let alert_engine = use_state(|| AlertEngine::new());
-    let list_filter = use_state(String::new);
+    let process_filter = use_state(move || launch_prefs.process_filter.clone());
+    let connection_filter = use_state(move || launch_prefs.connection_filter.clone());
     let chart_scales = use_state(ChartScaleBank::default);
     let traffic_snapshot = use_state(move || demo_traffic_for_state.unwrap_or_default());
     let selected_connection = use_state(|| None::<ConnectionDetail>);
+    let selected_process = use_state(|| None::<ProcessTraffic>);
     let show_onboarding = use_state(move || !is_demo && !onboarding_done);
     let app_theme = use_state(move || initial_theme);
     let settings_tab = use_state(settings::initial_settings_tab);
@@ -283,8 +287,10 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
     let timeline = character_timeline.read().clone();
     let alert_engine_state = alert_engine;
     let recent_alerts = alert_engine_state.read().recent_event_count(alerts::RECENT_ALERT_WINDOW);
-    let filter = list_filter.read().clone();
+    let proc_filter = process_filter.read().clone();
+    let conn_filter = connection_filter.read().clone();
     let selected_conn = selected_connection.read().clone();
+    let selected_proc = selected_process.read().clone();
     let rate_tracker_snap = rate_tracker.read().clone();
     let traffic_health = traffic_snapshot.read().health.clone();
     let detail_open = selected_name.is_some();
@@ -308,6 +314,9 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
                     app_section,
                     selected,
                     selected_connection,
+                    selected_process,
+                    process_filter,
+                    connection_filter,
                     started,
                     section,
                     alert_engine_state,
@@ -330,12 +339,17 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
                     window,
                     timeline,
                     alert_engine_state,
-                    list_filter,
-                    filter,
+                    process_filter,
+                    proc_filter,
+                    connection_filter,
+                    conn_filter,
                     anim_frame,
                     chart_scales,
                     selected_connection,
                     selected_conn,
+                    selected_process,
+                    selected_proc,
+                    app_section,
                     rate_tracker_snap,
                     traffic_health,
                     settings_tab,
@@ -377,12 +391,17 @@ fn main_area(
     window: TimeWindow,
     timeline: CharacterTimeline,
     alert_engine: State<AlertEngine>,
-    list_filter: State<String>,
-    filter: String,
+    process_filter: State<String>,
+    proc_filter: String,
+    connection_filter: State<String>,
+    conn_filter: String,
     anim_frame: f64,
     chart_scales: State<ChartScaleBank>,
     selected_connection: State<Option<ConnectionDetail>>,
     selected_conn: Option<ConnectionDetail>,
+    selected_process: State<Option<ProcessTraffic>>,
+    selected_proc: Option<ProcessTraffic>,
+    app_section: State<AppSection>,
     rate_tracker_snap: RateTracker,
     traffic_health: DataHealth,
     settings_tab: State<settings::SettingsTab>,
@@ -428,12 +447,17 @@ fn main_area(
             window,
             timeline,
             alert_engine,
-            list_filter,
-            filter,
+            process_filter,
+            proc_filter,
+            connection_filter,
+            conn_filter,
             anim_frame,
             chart_scales,
             selected_connection,
             selected_conn,
+            selected_process,
+            selected_proc,
+            app_section,
             rate_tracker_snap,
             traffic_health,
         )
@@ -457,12 +481,17 @@ fn main_content(
     window: TimeWindow,
     timeline: CharacterTimeline,
     alert_engine: State<AlertEngine>,
-    list_filter: State<String>,
-    filter: String,
+    process_filter: State<String>,
+    proc_filter: String,
+    connection_filter: State<String>,
+    conn_filter: String,
     anim_frame: f64,
     chart_scales: State<ChartScaleBank>,
     selected_connection: State<Option<ConnectionDetail>>,
     selected_conn: Option<ConnectionDetail>,
+    selected_process: State<Option<ProcessTraffic>>,
+    selected_proc: Option<ProcessTraffic>,
+    app_section: State<AppSection>,
     rate_tracker_snap: RateTracker,
     traffic_health: DataHealth,
 ) -> Element {
@@ -519,16 +548,39 @@ fn main_content(
                 AdapterTableMode::FullList,
             ))
             .into(),
-        AppSection::Processes => rect()
-            .child(processes_view(
-                processes,
-                live_rates,
-                filter,
-                list_filter,
-                palette,
-                true,
-            ))
-            .into(),
+        AppSection::Processes => {
+            if let Some(selected) = selected_proc {
+                processes_detail_view(
+                    processes,
+                    connections,
+                    selected,
+                    live_rates,
+                    rate_tracker_snap,
+                    selected_process,
+                    selected_connection,
+                    app_section,
+                    palette,
+                    snapshot.sample_tick,
+                )
+                .into()
+            } else {
+                rect()
+                    .vertical()
+                    .expanded()
+                    .padding(Gaps::new_all(16.))
+                    .spacing(12.)
+                    .child(section_heading("Processes", palette))
+                    .child(processes_view(
+                        processes,
+                        live_rates,
+                        proc_filter,
+                        process_filter,
+                        selected_process,
+                        palette,
+                    ))
+                    .into()
+            }
+        }
         AppSection::Connections => {
             if let Some(selected) = selected_conn {
                 connections_detail_view(
@@ -539,6 +591,7 @@ fn main_content(
                     selected_connection,
                     palette,
                     snapshot.sample_tick,
+                    chart_scales,
                 )
                 .into()
             } else {
@@ -551,11 +604,10 @@ fn main_content(
                     .child(connections_list_view(
                         connections,
                         live_rates,
-                        filter,
-                        list_filter,
+                        conn_filter,
+                        connection_filter,
                         palette,
                         selected_connection,
-                        true,
                     ))
                     .into()
             }
@@ -566,10 +618,10 @@ fn main_content(
             processes,
             live_rates,
             palette,
-            anim_clock,
             character_scopes,
             timeline,
             window,
+            chart_scales,
         )
         .into(),
         AppSection::Alerts => rect()
@@ -584,8 +636,8 @@ fn main_content(
     }
 }
 
-fn section_needs_animation(section: AppSection, detail_open: bool) -> bool {
-    matches!(section, AppSection::TrafficCharacter) || detail_open
+fn section_needs_animation(_section: AppSection, detail_open: bool) -> bool {
+    detail_open
 }
 
 fn adapter_stack(
@@ -638,13 +690,43 @@ fn section_heading(title: &'static str, palette: Palette) -> Element {
         .into()
 }
 
+fn processes_detail_view(
+    processes: Vec<ProcessTraffic>,
+    connections: Vec<ConnectionDetail>,
+    selected: ProcessTraffic,
+    live_rates: Vec<LiveConnectionRate>,
+    rate_tracker: RateTracker,
+    selected_process: State<Option<ProcessTraffic>>,
+    selected_connection: State<Option<ConnectionDetail>>,
+    app_section: State<AppSection>,
+    palette: Palette,
+    sample_tick: u64,
+) -> Element {
+    let fresh = processes
+        .iter()
+        .find(|p| p.pid == selected.pid)
+        .cloned()
+        .unwrap_or(selected);
+    process_detail_screen(
+        fresh,
+        connections,
+        &live_rates,
+        rate_tracker,
+        selected_process,
+        selected_connection,
+        app_section,
+        palette,
+        sample_tick,
+    )
+}
+
 fn processes_view(
     mut processes: Vec<ProcessTraffic>,
     live_rates: Vec<LiveConnectionRate>,
     filter: String,
-    list_filter: State<String>,
+    process_filter: State<String>,
+    selected_process: State<Option<ProcessTraffic>>,
     palette: Palette,
-    filter_keys: bool,
 ) -> Element {
     processes.sort_by(|a, b| {
         b.combined_bytes()
@@ -657,10 +739,10 @@ fn processes_view(
         .into_iter()
         .filter(|p| needle.is_empty() || p.name.to_ascii_lowercase().contains(&needle))
         .enumerate()
-        .map(|(i, proc)| process_row(proc, &live_rates, palette, i))
+        .map(|(i, proc)| process_row(proc, &live_rates, palette, selected_process, i))
         .collect();
 
-    let body = panel_shell(
+    panel_shell(
         palette,
         rect()
             .vertical()
@@ -668,8 +750,7 @@ fn processes_view(
             .spacing(6.)
             .child(list_filter_bar(
                 "Type to filter processes…",
-                filter,
-                list_filter,
+                process_filter,
                 palette,
             ))
             .child(
@@ -694,13 +775,8 @@ fn processes_view(
                         rows
                     }),
             ),
-    );
-
-    if filter_keys {
-        attach_list_filter_keys(body, list_filter, palette)
-    } else {
-        body
-    }
+    )
+    .into()
 }
 
 fn connections_detail_view(
@@ -711,6 +787,7 @@ fn connections_detail_view(
     selected_connection: State<Option<ConnectionDetail>>,
     palette: Palette,
     sample_tick: u64,
+    chart_scales: State<ChartScaleBank>,
 ) -> Element {
     let fresh = connections
         .iter()
@@ -724,6 +801,7 @@ fn connections_detail_view(
         selected_connection,
         palette,
         sample_tick,
+        chart_scales,
     )
 }
 
@@ -731,10 +809,9 @@ fn connections_list_view(
     connections: Vec<ConnectionDetail>,
     live_rates: Vec<LiveConnectionRate>,
     filter: String,
-    list_filter: State<String>,
+    connection_filter: State<String>,
     palette: Palette,
     selected_connection: State<Option<ConnectionDetail>>,
-    filter_keys: bool,
 ) -> Element {
     let mut sorted = connections;
     sorted.sort_by(|a, b| {
@@ -759,114 +836,56 @@ fn connections_list_view(
         })
         .collect();
 
-    let body = rect()
-        .vertical()
-        .expanded()
-        .spacing(0.)
-        .child(panel_shell(
-            palette,
-            rect()
-                .vertical()
-                .expanded()
-                .spacing(6.)
-                .child(list_filter_bar(
-                    "Type to filter connections…",
-                    filter,
-                    list_filter,
-                    palette,
-                ))
-                .child(
-                    ScrollView::new()
-                        .expanded()
-                        .spacing(4.)
-                        .child(list_header(
-                            palette,
-                            &[
-                                ("Process", 16.),
-                                ("Remote", 18.),
-                                ("Local", 16.),
-                                ("Proto", 6.),
-                                ("Role", 6.),
-                                ("State", 8.),
-                                ("Live", 12.),
-                                ("Total", 12.),
-                            ],
-                        ))
-                        .children(if rows.is_empty() {
-                            vec![empty_state("No matching connections.".into(), palette)]
-                        } else {
-                            rows
-                        }),
-                ),
-        ));
-
-    if filter_keys {
-        attach_list_filter_keys(body.into(), list_filter, palette)
-    } else {
-        body.into()
-    }
-}
-
-fn attach_list_filter_keys(
-    body: Element,
-    list_filter: State<String>,
-    palette: Palette,
-) -> Element {
-    rect()
-        .vertical()
-        .expanded()
-        .background(palette.bg)
-        .on_global_key_down(move |e: Event<KeyboardEventData>| {
-            use keyboard_types::{Key, NamedKey};
-            let data = e.data();
-            match &data.key {
-                Key::Character(ch) if !data.modifiers.alt() && !data.modifiers.ctrl() => {
-                    let mut next = list_filter.peek().clone();
-                    next.push_str(ch);
-                    *list_filter.write_unchecked() = next;
-                }
-                Key::Named(NamedKey::Backspace) => {
-                    let mut next = list_filter.peek().clone();
-                    next.pop();
-                    *list_filter.write_unchecked() = next;
-                }
-                Key::Named(NamedKey::Escape) => {
-                    *list_filter.write_unchecked() = String::new();
-                }
-                _ => {}
-            }
-        })
-        .child(body)
-        .into()
+    panel_shell(
+        palette,
+        rect()
+            .vertical()
+            .expanded()
+            .spacing(6.)
+            .child(list_filter_bar(
+                "Type to filter connections…",
+                connection_filter,
+                palette,
+            ))
+            .child(
+                ScrollView::new()
+                    .expanded()
+                    .spacing(4.)
+                    .child(list_header(
+                        palette,
+                        &[
+                            ("Process", 16.),
+                            ("Remote", 18.),
+                            ("Local", 16.),
+                            ("Proto", 6.),
+                            ("Role", 6.),
+                            ("State", 8.),
+                            ("Live", 12.),
+                            ("Total", 12.),
+                        ],
+                    ))
+                    .children(if rows.is_empty() {
+                        vec![empty_state("No matching connections.".into(), palette)]
+                    } else {
+                        rows
+                    }),
+            ),
+    )
+    .into()
 }
 
 fn list_filter_bar(
     placeholder: &'static str,
-    filter: String,
-    _list_filter: State<String>,
-    palette: Palette,
+    list_filter: State<String>,
+    _palette: Palette,
 ) -> Element {
-    let hint = if filter.is_empty() {
-        placeholder.to_string()
-    } else {
-        format!("{filter}  ·  Esc clears")
-    };
-
     rect()
         .width(Size::fill())
-        .padding(Gaps::new_all(8.))
-        .background(palette.bg)
-        .corner_radius(8.)
-        .border(palette.border())
         .child(
-            label()
-                .text(hint)
-                .font_size(12.)
-                .color(if filter.is_empty() {
-                    palette.muted
-                } else {
-                    palette.text
-                }),
+            Input::new(list_filter)
+                .placeholder(placeholder)
+                .flat()
+                .width(Size::fill()),
         )
         .into()
 }
@@ -922,12 +941,27 @@ fn process_row(
     proc: ProcessTraffic,
     live_rates: &[LiveConnectionRate],
     palette: Palette,
+    mut selected_process: State<Option<ProcessTraffic>>,
     index: usize,
 ) -> Element {
     let total = proc.combined_bytes();
     let (live_rx, live_tx) = rates_for_process(live_rates, &proc.name);
     let live_total = live_rx + live_tx;
-    data_row_shell(palette, index, false, vec![
+    let proc_for_select = proc.clone();
+    let is_selected = selected_process
+        .peek()
+        .as_ref()
+        .is_some_and(|selected| selected.pid == proc.pid);
+
+    clickable_data_row_shell(
+        palette,
+        index,
+        is_selected,
+        move |e: Event<MouseEventData>| {
+            e.stop_propagation();
+            selected_process.set(Some(proc_for_select.clone()));
+        },
+        vec![
             label()
                 .text(proc.name)
                 .font_size(12.)
@@ -1117,6 +1151,9 @@ fn sidebar(
     app_section: State<AppSection>,
     selected: State<Option<String>>,
     selected_connection: State<Option<ConnectionDetail>>,
+    selected_process: State<Option<ProcessTraffic>>,
+    process_filter: State<String>,
+    connection_filter: State<String>,
     started: Instant,
     active: AppSection,
     alert_engine: State<AlertEngine>,
@@ -1242,6 +1279,9 @@ fn sidebar(
                     app_section,
                     selected,
                     selected_connection,
+                    selected_process,
+                    process_filter,
+                    connection_filter,
                     palette,
                     0,
                 ))
@@ -1251,6 +1291,9 @@ fn sidebar(
                     app_section,
                     selected,
                     selected_connection,
+                    selected_process,
+                    process_filter,
+                    connection_filter,
                     palette,
                     0,
                 ))
@@ -1260,6 +1303,9 @@ fn sidebar(
                     app_section,
                     selected,
                     selected_connection,
+                    selected_process,
+                    process_filter,
+                    connection_filter,
                     palette,
                     0,
                 ))
@@ -1269,6 +1315,9 @@ fn sidebar(
                     app_section,
                     selected,
                     selected_connection,
+                    selected_process,
+                    process_filter,
+                    connection_filter,
                     palette,
                     0,
                 ))
@@ -1278,6 +1327,9 @@ fn sidebar(
                     app_section,
                     selected,
                     selected_connection,
+                    selected_process,
+                    process_filter,
+                    connection_filter,
                     palette,
                     0,
                 ))
@@ -1287,6 +1339,9 @@ fn sidebar(
                     app_section,
                     selected,
                     selected_connection,
+                    selected_process,
+                    process_filter,
+                    connection_filter,
                     palette,
                     recent_alerts,
                 ))
@@ -1296,6 +1351,9 @@ fn sidebar(
                     app_section,
                     selected,
                     selected_connection,
+                    selected_process,
+                    process_filter,
+                    connection_filter,
                     palette,
                     0,
                 )),
@@ -1354,6 +1412,9 @@ fn nav_item(
     mut app_section: State<AppSection>,
     selected: State<Option<String>>,
     mut selected_connection: State<Option<ConnectionDetail>>,
+    mut selected_process: State<Option<ProcessTraffic>>,
+    process_filter: State<String>,
+    connection_filter: State<String>,
     palette: Palette,
     badge: usize,
 ) -> Element {
@@ -1391,12 +1452,23 @@ fn nav_item(
         .background(bg)
         .corner_radius(8.)
         .on_mouse_up(move |_| {
+            if active == AppSection::Processes {
+                let text = process_filter.peek().clone();
+                let _ = preferences::with_store(|store| store.set_process_filter(&text));
+            }
+            if active == AppSection::Connections {
+                let text = connection_filter.peek().clone();
+                let _ = preferences::with_store(|store| store.set_connection_filter(&text));
+            }
             app_section.set(section_set);
             if !matches!(section_set, AppSection::Overview | AppSection::Adapters) {
                 *selected.write_unchecked() = None;
             }
             if section_set != AppSection::Connections {
                 selected_connection.set(None);
+            }
+            if section_set != AppSection::Processes {
+                selected_process.set(None);
             }
         })
         .child(

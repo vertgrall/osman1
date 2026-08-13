@@ -66,18 +66,13 @@ impl CharacterScopeBank {
         &mut self,
         ctx: &mut CanvasContext,
         character: TrafficCharacter,
-        time_secs: f64,
         palette: Palette,
     ) {
-        self.draw_live(
-            ctx,
-            character.scope_id(),
-            character,
-            time_secs,
-            palette,
-            CharacterDrawProfile::LEGEND,
-            None,
-        );
+        let trace = self.traces.entry(character.scope_id()).or_default();
+        if trace.last_time.is_none() {
+            trace.fill_static(character);
+        }
+        trace.draw_with_profile(ctx, character, palette, CharacterDrawProfile::LEGEND);
     }
 
     pub fn draw_live(
@@ -119,6 +114,27 @@ impl Default for CharacterTrace {
 }
 
 impl CharacterTrace {
+    fn fill_static(&mut self, character: TrafficCharacter) {
+        let style = character.style();
+        let bps = character.demo_bps();
+        let hz = bps_to_hz(bps.max(800.0));
+        let envelope = ((bps / 200_000.0).sqrt() as f32).clamp(0.22, 1.0);
+        for i in 0..BUFFER_LEN {
+            let t = i as f32 / TRACE_SAMPLE_RATE;
+            self.phase = hz * t * TAU;
+            self.phase_b = hz * 1.35 * t * TAU + 0.4;
+            let primary = sample_for_style(style, self.phase, true);
+            let secondary = if style.dual_lane {
+                Waveform::Sine.sample(self.phase_b + TAU * 0.5)
+            } else {
+                0.0
+            };
+            self.samples[i] = primary * envelope;
+            self.samples_b[i] = secondary * envelope * 0.85;
+        }
+        self.last_time = Some(1.0);
+    }
+
     fn advance(&mut self, character: TrafficCharacter, time_secs: f64, bps: f64) {
         let dt = match self.last_time {
             Some(prev) => (time_secs - prev).clamp(0.0, 0.05) as f32,

@@ -1,37 +1,39 @@
-//! Full-screen connection drill-down with traffic waveform.
+//! Full-screen process drill-down with aggregate traffic waveform and socket list.
 
 use freya::prelude::*;
 
-use crate::charts::{draw_network_activity, sparkline_scale, ChartScaleBank, MIN_CHART_SCALE};
-use crate::detail::ConnectionDetail;
-use crate::parse::DataSource;
-use crate::rate_tracker::{rate_for_connection, RateTracker};
+use crate::charts::{draw_network_activity, sparkline_scale};
+use crate::detail::{ConnectionDetail, ProcessTraffic};
+use crate::rate_tracker::{
+    rate_for_connection, rates_for_pid, RateTracker,
+};
 use crate::theme::{format_rate, format_total, Palette};
 use crate::time_window::{slice_history, TimeWindow};
 
 const DETAIL_LABEL_WIDTH: f32 = 120.;
 
-/// Y-axis scale for the connection detail chart — must stay below hero floor for B/s traffic.
-pub fn connection_chart_scale(rx: &[f64], tx: &[f64], combined: &[f64]) -> f64 {
+pub fn process_chart_scale(rx: &[f64], tx: &[f64], combined: &[f64]) -> f64 {
     sparkline_scale(rx, tx, combined)
 }
 
-pub fn connection_detail_screen(
-    conn: ConnectionDetail,
+pub fn process_detail_screen(
+    proc: ProcessTraffic,
+    connections: Vec<ConnectionDetail>,
     live_rates: &[crate::rate_tracker::LiveConnectionRate],
     rate_tracker: RateTracker,
+    selected_process: State<Option<ProcessTraffic>>,
     selected_connection: State<Option<ConnectionDetail>>,
+    app_section: State<crate::AppSection>,
     palette: Palette,
     sample_tick: u64,
-    mut chart_scales: State<ChartScaleBank>,
 ) -> Element {
-    let live = rate_for_connection(live_rates, conn.id);
-    let history = rate_tracker.connection_history(conn.id);
-    let session = rate_tracker.session_age(conn.id);
-    let session_label = session
-        .map(|d| format!("{}m {}s", d.as_secs() / 60, d.as_secs() % 60))
-        .unwrap_or_else(|| "—".into());
+    let pid = proc.pid;
+    let filtered: Vec<ConnectionDetail> = connections
+        .into_iter()
+        .filter(|c| c.pid == pid)
+        .collect();
 
+    let history = rate_tracker.process_history(pid, &filtered);
     let (rx_hist, tx_hist, combined_hist) = history
         .map(|h| (h.rx, h.tx, h.combined))
         .unwrap_or_default();
@@ -40,10 +42,7 @@ pub fn connection_detail_screen(
     let rx = slice_history(&rx_hist, window);
     let tx = slice_history(&tx_hist, window);
     let combined = slice_history(&combined_hist, window);
-    let locked = chart_scales
-        .write()
-        .detail_y(conn.id.0, window, &rx, &tx, &combined);
-    let render_max_y = locked;
+    let render_max_y = process_chart_scale(&rx, &tx, &combined);
     let peak = combined.iter().copied().fold(0.0_f64, f64::max);
     let peak_label = if peak > 0.0 {
         format!("{} peak", format_rate(peak))
@@ -51,9 +50,8 @@ pub fn connection_detail_screen(
         "No recent traffic".into()
     };
 
-    let live_rx = live.map(|r| r.rx_bps).unwrap_or(0.0);
-    let live_tx = live.map(|r| r.tx_bps).unwrap_or(0.0);
-    let live_total = live.map(|r| r.combined_bps()).unwrap_or(0.0);
+    let (live_rx, live_tx) = rates_for_pid(live_rates, &filtered, pid);
+    let live_total = live_rx + live_tx;
 
     rect()
         .vertical()
@@ -61,12 +59,12 @@ pub fn connection_detail_screen(
         .background(palette.bg)
         .padding(Gaps::new_all(16.))
         .spacing(12.)
-        .child(connection_detail_header(
-            &conn,
-            selected_connection,
+        .child(process_detail_header(
+            &proc,
+            selected_process,
             palette,
         ))
-        .child(connection_traffic_hero(
+        .child(process_traffic_hero(
             &rx,
             &tx,
             &combined,
@@ -85,12 +83,19 @@ pub fn connection_detail_screen(
                         .vertical()
                         .width(Size::fill())
                         .spacing(12.)
-                        .child(connection_details_card(&conn, session_label, palette))
-                        .child(connection_stats_card(
-                            &conn,
+                        .child(process_details_card(&proc, filtered.len(), palette))
+                        .child(process_stats_card(
+                            &proc,
                             live_rx,
                             live_tx,
                             live_total,
+                            palette,
+                        ))
+                        .child(process_connections_card(
+                            filtered,
+                            live_rates,
+                            selected_connection,
+                            app_section,
                             palette,
                         )),
                 ),
@@ -98,9 +103,9 @@ pub fn connection_detail_screen(
         .into()
 }
 
-fn connection_detail_header(
-    conn: &ConnectionDetail,
-    mut selected_connection: State<Option<ConnectionDetail>>,
+fn process_detail_header(
+    proc: &ProcessTraffic,
+    mut selected_process: State<Option<ProcessTraffic>>,
     palette: Palette,
 ) -> Element {
     rect()
@@ -110,11 +115,11 @@ fn connection_detail_header(
         .child(
             Button::new()
                 .on_press(move |_| {
-                    selected_connection.set(None);
+                    selected_process.set(None);
                 })
                 .child(
                     label()
-                        .text("< Connections")
+                        .text("< Processes")
                         .font_size(12.)
                         .color(palette.receive),
                 ),
@@ -125,14 +130,14 @@ fn connection_detail_header(
                 .spacing(2.)
                 .child(
                     label()
-                        .text(format!("{} · pid {}", conn.process_name, conn.pid))
+                        .text(proc.name.clone())
                         .font_size(18.)
                         .font_weight(FontWeight::BOLD)
                         .color(palette.title),
                 )
                 .child(
                     label()
-                        .text(conn.remote_label())
+                        .text(format!("pid {} · {} sockets", proc.pid, proc.connection_count))
                         .font_size(13.)
                         .color(palette.muted),
                 ),
@@ -140,7 +145,7 @@ fn connection_detail_header(
         .into()
 }
 
-fn connection_traffic_hero(
+fn process_traffic_hero(
     rx: &[f64],
     tx: &[f64],
     combined: &[f64],
@@ -167,7 +172,7 @@ fn connection_traffic_hero(
                 .spacing(4.)
                 .child(
                     label()
-                        .text("Connection traffic")
+                        .text("Process traffic")
                         .font_size(16.)
                         .font_weight(FontWeight::BOLD)
                         .color(palette.text),
@@ -193,7 +198,7 @@ fn connection_traffic_hero(
                         ),
                 ),
         )
-        .child(connection_legend_row(palette))
+        .child(process_legend_row(palette))
         .child(
             canvas(RenderCallback::new({
                 let rx = rx.to_vec();
@@ -210,7 +215,7 @@ fn connection_traffic_hero(
         .into()
 }
 
-fn connection_legend_row(palette: Palette) -> Element {
+fn process_legend_row(palette: Palette) -> Element {
     rect()
         .horizontal()
         .width(Size::fill())
@@ -237,17 +242,7 @@ fn connection_legend_row(palette: Palette) -> Element {
         .into()
 }
 
-fn connection_details_card(
-    conn: &ConnectionDetail,
-    session_label: String,
-    palette: Palette,
-) -> Element {
-    let status_color = if conn.state.contains("ESTABLISHED") || conn.state.contains("LISTEN") {
-        palette.send
-    } else {
-        palette.muted
-    };
-
+fn process_details_card(proc: &ProcessTraffic, socket_count: usize, palette: Palette) -> Element {
     rect()
         .vertical()
         .width(Size::fill())
@@ -257,30 +252,14 @@ fn connection_details_card(
         .corner_radius(12.)
         .border(palette.border())
         .child(section_title("Details", palette))
-        .child(kv_row("Remote", conn.remote_label(), palette, None))
-        .child(kv_row("Local", conn.local_label(), palette, None))
-        .child(kv_row("Interface", conn.interface.clone(), palette, None))
-        .child(kv_row("Protocol", conn.transport.to_uppercase(), palette, None))
-        .child(kv_row("Role", conn.role_label().into(), palette, None))
-        .child(kv_row(
-            "Direction",
-            conn.direction_label().into(),
-            palette,
-            None,
-        ))
-        .child(kv_row("Link", conn.state.clone(), palette, Some(status_color)))
-        .child(kv_row("Session", session_label, palette, None))
-        .child(kv_row(
-            "Source",
-            data_source_label(conn.source),
-            palette,
-            None,
-        ))
+        .child(kv_row("Process", proc.name.clone(), palette, None))
+        .child(kv_row("PID", proc.pid.to_string(), palette, None))
+        .child(kv_row("Sockets", socket_count.to_string(), palette, None))
         .into()
 }
 
-fn connection_stats_card(
-    conn: &ConnectionDetail,
+fn process_stats_card(
+    proc: &ProcessTraffic,
     live_rx: f64,
     live_tx: f64,
     live_total: f64,
@@ -315,22 +294,156 @@ fn connection_stats_card(
         ))
         .child(kv_row(
             "Bytes received",
-            format_total(conn.rx_bytes),
+            format_total(proc.rx_bytes),
             palette,
             None,
         ))
         .child(kv_row(
             "Bytes sent",
-            format_total(conn.tx_bytes),
+            format_total(proc.tx_bytes),
             palette,
             None,
         ))
         .child(kv_row(
             "Bytes total",
-            format_total(conn.combined_bytes()),
+            format_total(proc.combined_bytes()),
             palette,
             None,
         ))
+        .into()
+}
+
+fn process_connections_card(
+    mut connections: Vec<ConnectionDetail>,
+    live_rates: &[crate::rate_tracker::LiveConnectionRate],
+    selected_connection: State<Option<ConnectionDetail>>,
+    app_section: State<crate::AppSection>,
+    palette: Palette,
+) -> Element {
+    connections.sort_by(|a, b| {
+        b.combined_bytes()
+            .partial_cmp(&a.combined_bytes())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let rows: Vec<Element> = connections
+        .into_iter()
+        .enumerate()
+        .map(|(i, conn)| {
+            process_connection_row(conn, live_rates, selected_connection, app_section, palette, i)
+        })
+        .collect();
+
+    rect()
+        .vertical()
+        .width(Size::fill())
+        .spacing(6.)
+        .padding(Gaps::new_all(12.))
+        .background(palette.panel)
+        .corner_radius(12.)
+        .border(palette.border())
+        .child(section_title("Connections", palette))
+        .child(
+            rect()
+                .vertical()
+                .width(Size::fill())
+                .spacing(4.)
+                .children(if rows.is_empty() {
+                    vec![empty_row("No active sockets for this process.".into(), palette)]
+                } else {
+                    rows
+                }),
+        )
+        .into()
+}
+
+fn process_connection_row(
+    conn: ConnectionDetail,
+    live_rates: &[crate::rate_tracker::LiveConnectionRate],
+    mut selected_connection: State<Option<ConnectionDetail>>,
+    mut app_section: State<crate::AppSection>,
+    palette: Palette,
+    index: usize,
+) -> Element {
+    let remote = conn.remote_label();
+    let local = conn.local_label();
+    let transport = conn.transport.clone();
+    let state = conn.state.clone();
+    let total = conn.combined_bytes();
+    let live = rate_for_connection(live_rates, conn.id)
+        .map(|r| r.combined_bps())
+        .unwrap_or(0.0);
+    let conn_for_select = conn.clone();
+    let bg = if index % 2 == 0 {
+        palette.panel
+    } else {
+        palette.bg
+    };
+
+    rect()
+        .horizontal()
+        .width(Size::fill())
+        .padding(Gaps::new(8., 10., 8., 10.))
+        .background(bg)
+        .spacing(8.)
+        .on_mouse_up(move |e: Event<MouseEventData>| {
+            e.stop_propagation();
+            selected_connection.set(Some(conn_for_select.clone()));
+            app_section.set(crate::AppSection::Connections);
+        })
+        .children(vec![
+            label()
+                .text(remote)
+                .font_size(11.)
+                .font_weight(FontWeight::BOLD)
+                .color(palette.text)
+                .width(Size::percent(28.))
+                .into(),
+            label()
+                .text(local)
+                .font_size(11.)
+                .color(palette.muted)
+                .width(Size::percent(24.))
+                .into(),
+            label()
+                .text(transport.to_uppercase())
+                .font_size(11.)
+                .color(palette.muted)
+                .width(Size::percent(10.))
+                .into(),
+            label()
+                .text(state)
+                .font_size(11.)
+                .color(palette.muted)
+                .width(Size::percent(14.))
+                .into(),
+            label()
+                .text(format_rate(live))
+                .font_size(12.)
+                .font_weight(FontWeight::BOLD)
+                .color(palette.total)
+                .width(Size::percent(12.))
+                .into(),
+            label()
+                .text(format_total(total))
+                .font_size(12.)
+                .font_weight(FontWeight::BOLD)
+                .color(palette.total)
+                .width(Size::percent(12.))
+                .into(),
+        ])
+        .into()
+}
+
+fn empty_row(message: String, palette: Palette) -> Element {
+    rect()
+        .padding(Gaps::new_all(12.))
+        .child(
+            label()
+                .text(message)
+                .font_size(12.)
+                .color(palette.muted),
+        )
         .into()
 }
 
@@ -371,27 +484,25 @@ fn kv_row(
         .into()
 }
 
-fn data_source_label(source: DataSource) -> String {
-    match source {
-        DataSource::Nettop => "nettop".into(),
-        DataSource::Lsof => "lsof".into(),
-        DataSource::Merged => "merged".into(),
-    }
-}
-
-const MIN_PEAK_LABEL_WIDTH: f32 = 60.0;
-
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use freya::prelude::*;
     use freya_testing::prelude::*;
 
     use super::*;
-    use crate::parse::{ConnectionId, Direction, SocketRole};
+    use crate::parse::{ConnectionId, DataSource, Direction, SocketRole};
     use crate::rate_tracker::RateTracker;
     use crate::theme::Palette;
+
+    fn sample_proc() -> ProcessTraffic {
+        ProcessTraffic {
+            name: "Safari".into(),
+            pid: 1001,
+            rx_bytes: 8192,
+            tx_bytes: 4096,
+            connection_count: 1,
+        }
+    }
 
     fn sample_conn() -> ConnectionDetail {
         ConnectionDetail {
@@ -423,112 +534,29 @@ mod tests {
         })
     }
 
-    fn canvas_sizes(test: &TestingRunner) -> Vec<(f32, f32)> {
-        test.find_many(|node, element| {
-            Canvas::try_downcast(element).map(|_| {
-                let area = node.layout().area;
-                (area.width(), area.height())
-            })
-        })
-    }
-
-    fn peak_label_layouts(test: &TestingRunner) -> Vec<(String, f32, f32)> {
-        test.find_many(|node, element| {
-            Label::try_downcast(element).and_then(|label| {
-                label.text.contains("peak").then(|| {
-                    let area = node.layout().area;
-                    (label.text.to_string(), area.width(), area.height())
-                })
-            })
-        })
-    }
-
-    fn tracker_with_low_traffic(conn: &ConnectionDetail) -> RateTracker {
-        let mut tracker = RateTracker::default();
-        let interval = Duration::from_secs(1);
-        tracker.update(&[conn.clone()], interval);
-        tracker.update(
-            &[ConnectionDetail {
-                rx_bytes: conn.rx_bytes.saturating_add(72),
-                tx_bytes: conn.tx_bytes,
-                ..conn.clone()
-            }],
-            interval,
-        );
-        tracker
-    }
-
     #[test]
-    fn connection_chart_scale_visible_for_bytes_per_second_traffic() {
-        let rx = vec![0.0, 72.0];
-        let tx = vec![0.0, 0.0];
-        let combined = vec![0.0, 72.0];
-        let scale = connection_chart_scale(&rx, &tx, &combined);
-        assert!(
-            scale < MIN_CHART_SCALE,
-            "72 B/s traffic must not use 512 B/s hero floor: {scale}"
-        );
-    }
-
-    #[test]
-    fn connection_detail_peak_label_not_squished_at_app_width() {
-        let conn = sample_conn();
-        let palette = Palette::default();
-        let tracker = tracker_with_low_traffic(&conn);
-
-        let mut test = launch_test({
-            let conn = conn.clone();
-            let tracker = tracker.clone();
-            move || {
-                let selected = use_state(|| Some(conn.clone()));
-                let chart_scales = use_state(ChartScaleBank::default);
-                rect()
-                    .width(Size::px(1100.))
-                    .height(Size::px(720.))
-                    .child(connection_detail_screen(
-                        conn.clone(),
-                        &[],
-                        tracker.clone(),
-                        selected,
-                        palette,
-                        1,
-                        chart_scales,
-                    ))
-            }
-        });
-        test.sync_and_update();
-
-        let peaks = peak_label_layouts(&test);
-        assert_eq!(peaks.len(), 1, "expected one peak label, got {peaks:?}");
-        let (text, width, height) = &peaks[0];
-        assert!(
-            *height <= 24.0,
-            "peak label wrapped vertically: {text:?} width={width} height={height}"
-        );
-        assert!(
-            *width >= MIN_PEAK_LABEL_WIDTH,
-            "peak label squished: {text:?} width={width} height={height}"
-        );
-    }
-
-    #[test]
-    fn connection_detail_renders_traffic_chart_and_cards() {
+    fn process_detail_renders_title_and_chart() {
+        let proc = sample_proc();
         let conn = sample_conn();
         let palette = Palette::default();
 
         let mut test = launch_test({
+            let proc = proc.clone();
             let conn = conn.clone();
             move || {
-                let selected = use_state(|| Some(conn.clone()));
-                let chart_scales = use_state(ChartScaleBank::default);
-                connection_detail_screen(
-                    conn.clone(),
+                let selected_process = use_state(|| Some(proc.clone()));
+                let selected_connection = use_state(|| None::<ConnectionDetail>);
+                let app_section = use_state(|| crate::AppSection::Processes);
+                process_detail_screen(
+                    proc.clone(),
+                    vec![conn.clone()],
                     &[],
                     RateTracker::default(),
-                    selected,
+                    selected_process,
+                    selected_connection,
+                    app_section,
                     palette,
                     1,
-                    chart_scales,
                 )
             }
         });
@@ -536,71 +564,64 @@ mod tests {
 
         let texts = label_texts(&test);
         assert!(
-            texts.iter().any(|t| t.contains("< Connections")),
+            texts.iter().any(|t| t.contains("< Processes")),
             "missing back link: {texts:?}"
         );
         assert!(
-            texts.iter().any(|t| t.contains("Connection traffic")),
-            "missing hero title: {texts:?}"
-        );
-        assert!(
-            texts.iter().any(|t| t.contains("Safari")),
+            texts.iter().any(|t| t == "Safari"),
             "missing process title: {texts:?}"
         );
         assert!(
-            texts.iter().any(|t| t.contains("Details")),
-            "missing details card: {texts:?}"
+            texts.iter().any(|t| t.contains("Process traffic")),
+            "missing hero title: {texts:?}"
         );
         assert!(
-            texts.iter().any(|t| t.contains("Statistics")),
-            "missing stats card: {texts:?}"
+            texts.iter().any(|t| t.contains("Connections")),
+            "missing connections card: {texts:?}"
         );
-
-        let canvases = canvas_sizes(&test);
-        assert_eq!(canvases.len(), 1, "expected one traffic canvas");
-        let (width, height) = canvases[0];
-        assert!(width >= 400.0, "chart too narrow: {width}");
-        assert!(height >= 200.0, "chart too short: {height}");
     }
 
     #[test]
-    fn connection_row_click_opens_detail_screen() {
-        let conn = sample_conn();
+    fn process_row_click_opens_detail_screen() {
+        let proc = sample_proc();
         let palette = Palette::default();
 
         let mut test = launch_test({
-            let conn = conn.clone();
+            let proc = proc.clone();
             move || {
-                let mut selected = use_state(|| None::<ConnectionDetail>);
-                let chart_scales = use_state(ChartScaleBank::default);
+                let mut selected = use_state(|| None::<ProcessTraffic>);
+                let selected_connection = use_state(|| None::<ConnectionDetail>);
+                let app_section = use_state(|| crate::AppSection::Processes);
                 let show_detail = selected.read().is_some();
                 rect()
                     .width(Size::px(1100.))
                     .height(Size::px(720.))
                     .background(palette.bg)
                     .child(if show_detail {
-                        connection_detail_screen(
+                        process_detail_screen(
                             selected.read().clone().unwrap(),
+                            vec![],
                             &[],
                             RateTracker::default(),
                             selected,
+                            selected_connection,
+                            app_section,
                             palette,
                             1,
-                            chart_scales,
                         )
                     } else {
                         rect()
                             .width(Size::fill())
                             .padding(Gaps::new_all(8.))
                             .on_mouse_up({
-                                let conn = conn.clone();
+                                let proc = proc.clone();
                                 move |_| {
-                                    selected.set(Some(conn.clone()));
+                                    selected.set(Some(proc.clone()));
                                 }
                             })
                             .child(
                                 label()
-                                    .text(format!("{} · open detail", conn.process_name))
+                                    .text(format!("{} · open detail", proc.name))
                                     .font_size(12.)
                                     .color(palette.text),
                             )
@@ -622,63 +643,14 @@ mod tests {
                     })
                 })
             })
-            .expect("connection row");
+            .expect("process row");
         test.click_cursor(click_at);
         test.sync_and_update();
 
         let texts = label_texts(&test);
         assert!(
-            texts.iter().any(|t| t.contains("Connection traffic")),
+            texts.iter().any(|t| t.contains("Process traffic")),
             "detail screen did not open after click: {texts:?}"
-        );
-    }
-
-    #[test]
-    fn connection_detail_traffic_chart_draws_visible_pixels() {
-        use crate::chart_test_harness::render_network_activity;
-        use crate::time_window::TimeWindow;
-
-        let conn = sample_conn();
-        let tracker = tracker_with_low_traffic(&conn);
-        let history = tracker.connection_history(conn.id).expect("history");
-        let rx = history.rx;
-        let tx = history.tx;
-        let combined = history.combined;
-        let scale = crate::charts::sparkline_scale(&rx, &tx, &combined);
-        let palette = Palette::default();
-        let fill = palette.chart_fill;
-
-        let chart = render_network_activity(
-            640.0,
-            280.0,
-            &rx,
-            &tx,
-            &combined,
-            palette,
-            TimeWindow::Sec60,
-            scale,
-        );
-        let active = chart.count_pixels_differing_from(60, 20, 620, 240, fill, 10);
-        assert!(
-            active > 40,
-            "connection detail chart should paint low-traffic series, got {active} (scale={scale})"
-        );
-    }
-
-    #[test]
-    fn connection_detail_y_axis_labels_are_rate_ticks() {
-        let rx = vec![0.0, 36.0, 72.0, 90.0];
-        let tx = vec![0.0, 0.0, 12.0, 18.0];
-        let combined = vec![0.0, 36.0, 84.0, 108.0];
-        let scale = connection_chart_scale(&rx, &tx, &combined);
-        let labels = crate::charts::chart_y_labels(scale);
-        assert_eq!(labels[0], "0 B/s");
-        assert!(labels[1].contains("B/s"), "mid tick: {:?}", labels[1]);
-        assert!(labels[2].contains("B/s"), "max tick: {:?}", labels[2]);
-        assert_ne!(labels[1], labels[2]);
-        assert!(
-            scale < crate::charts::MIN_CHART_SCALE,
-            "connection Y scale should stay below hero floor: {scale}"
         );
     }
 }

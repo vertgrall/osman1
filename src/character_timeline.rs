@@ -34,7 +34,12 @@ impl CharacterTimeline {
         self.sample_index = self.sample_index.saturating_add(1);
 
         for iface in &snapshot.interfaces {
-            let (character, _) = classify_interface(iface, connections);
+            let iface_conns: Vec<ConnectionDetail> = connections
+                .iter()
+                .filter(|c| c.interface == iface.name)
+                .cloned()
+                .collect();
+            let (character, _) = classify_interface(iface, &iface_conns);
             self.observe_interface(&iface.name, character);
         }
     }
@@ -141,4 +146,59 @@ fn color4f(color: Color, alpha_scale: f32) -> Color4f {
         color.b() as f32 / 255.0,
         (color.a() as f32 / 255.0) * alpha_scale,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::InterfaceStats;
+
+    fn stats(name: &str, bps: f64, consistency: f64) -> InterfaceStats {
+        let hist = vec![bps; 16];
+        InterfaceStats {
+            name: name.into(),
+            rx_bps: bps,
+            tx_bps: 0.0,
+            combined_bps: bps,
+            total_rx: 0,
+            total_tx: 0,
+            consistency,
+            heavy_consistent: false,
+            rx_history: hist.clone(),
+            tx_history: vec![0.0; 16],
+            combined_history: hist,
+        }
+    }
+
+    fn snapshot(iface: InterfaceStats) -> NetworkSnapshot {
+        NetworkSnapshot {
+            interfaces: vec![iface],
+            ..NetworkSnapshot::default()
+        }
+    }
+
+    #[test]
+    fn timeline_records_character_transitions() {
+        let mut timeline = CharacterTimeline::default();
+        timeline.observe_snapshot(&snapshot(stats("en0", 100.0, 0.4)), &[]);
+        timeline.observe_snapshot(&snapshot(stats("en0", 5_000_000.0, 0.9)), &[]);
+
+        let label = timeline
+            .latest_transition_label("en0")
+            .expect("transition");
+        assert!(
+            label.contains("→"),
+            "expected class transition arrow: {label}"
+        );
+        assert!(
+            label.contains("Listen / Idle") || label.contains("Steady Stream"),
+            "unexpected transition: {label}"
+        );
+
+        let segs = timeline.segments_for("en0", TimeWindow::Sec60);
+        assert!(
+            segs.len() >= 2,
+            "expected at least two timeline segments, got {segs:?}"
+        );
+    }
 }

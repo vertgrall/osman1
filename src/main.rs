@@ -22,6 +22,7 @@ mod detail;
 mod icon_assets;
 mod lfo;
 mod macos_about_menu;
+mod macos_activation;
 mod macos_dock_icon;
 mod menubar;
 mod mock_traffic;
@@ -32,6 +33,7 @@ mod parse;
 mod particles;
 mod preferences;
 mod rate_tracker;
+mod settings;
 mod theme;
 mod time_window;
 mod traffic_character;
@@ -103,6 +105,9 @@ fn main() {
                 async_io::Timer::after(std::time::Duration::from_millis(250)).await;
                 macos_about_menu::install();
                 macos_dock_icon::install(icon_assets::DOCK_ICON_BYTES);
+                if preferences::get().menubar_only {
+                    macos_activation::set_menubar_only(true);
+                }
                 async_io::Timer::after(std::time::Duration::from_millis(750)).await;
                 macos_about_menu::install();
             })
@@ -173,6 +178,10 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
     let selected_connection = use_state(|| None::<ConnectionDetail>);
     let show_onboarding = use_state(move || !is_demo && !onboarding_done);
     let app_theme = use_state(move || initial_theme);
+    let settings_tab = use_state(settings::initial_settings_tab);
+    let settings_poll_ms = use_state(|| settings::initial_poll_ms());
+    let settings_default_section = use_state(|| settings::initial_default_section());
+    let settings_menubar_only = use_state(|| settings::initial_menubar_only());
 
     if !is_demo {
         use_future(move || {
@@ -301,7 +310,7 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
                     section,
                     &alerts,
                 ))
-                .child(main_content(
+                .child(main_area(
                     section,
                     data,
                     palette,
@@ -326,6 +335,10 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
                     selected_conn,
                     rate_tracker_snap,
                     traffic_health,
+                    settings_tab,
+                    settings_poll_ms,
+                    settings_default_section,
+                    settings_menubar_only,
                 )),
         )
         .child({
@@ -342,6 +355,86 @@ fn app_with_bootstrap(bootstrap: AppBootstrap) -> Element {
             )
         })
         .into()
+}
+
+fn main_area(
+    section: AppSection,
+    snapshot: NetworkSnapshot,
+    palette: Palette,
+    app_theme: State<AppTheme>,
+    selected: State<Option<String>>,
+    selected_name: Option<String>,
+    detail: Option<InterfaceDetail>,
+    processes: Vec<ProcessTraffic>,
+    connections: Vec<ConnectionDetail>,
+    live_rates: Vec<LiveConnectionRate>,
+    anim_clock: State<f64>,
+    character_scopes: State<CharacterScopeBank>,
+    time_window: State<TimeWindow>,
+    window: TimeWindow,
+    timeline: CharacterTimeline,
+    alerts: AlertEngine,
+    list_filter: State<String>,
+    filter: String,
+    anim_frame: f64,
+    chart_scales: State<ChartScaleBank>,
+    selected_connection: State<Option<ConnectionDetail>>,
+    selected_conn: Option<ConnectionDetail>,
+    rate_tracker_snap: RateTracker,
+    traffic_health: DataHealth,
+    settings_tab: State<settings::SettingsTab>,
+    settings_poll_ms: State<u64>,
+    settings_default_section: State<String>,
+    settings_menubar_only: State<bool>,
+) -> Element {
+    let on_settings = section == AppSection::Settings;
+
+    if on_settings {
+        rect()
+            .vertical()
+            .expanded()
+            .padding(Gaps::new_all(16.))
+            .spacing(12.)
+            .child(section_heading("Settings", palette))
+            .child(settings::settings_screen(
+                palette,
+                app_theme,
+                &alerts,
+                true,
+                settings_tab,
+                settings_poll_ms,
+                settings_default_section,
+                settings_menubar_only,
+            ))
+            .into()
+    } else {
+        main_content(
+            section,
+            snapshot,
+            palette,
+            app_theme,
+            selected,
+            selected_name,
+            detail,
+            processes,
+            connections,
+            live_rates,
+            anim_clock,
+            character_scopes,
+            time_window,
+            window,
+            timeline,
+            alerts,
+            list_filter,
+            filter,
+            anim_frame,
+            chart_scales,
+            selected_connection,
+            selected_conn,
+            rate_tracker_snap,
+            traffic_health,
+        )
+    }
 }
 
 fn main_content(
@@ -484,14 +577,7 @@ fn main_content(
             .child(section_heading("Alerts", palette))
             .child(alerts_screen(&alerts, palette))
             .into(),
-        AppSection::Settings => rect()
-            .vertical()
-            .expanded()
-            .padding(Gaps::new_all(16.))
-            .spacing(12.)
-            .child(section_heading("Settings", palette))
-            .child(settings_view(palette, app_theme))
-            .into(),
+        AppSection::Settings => rect().height(Size::px(0.)).into(),
     }
 }
 
@@ -782,72 +868,6 @@ fn list_filter_bar(
         .into()
 }
 
-fn settings_view(palette: Palette, app_theme: State<AppTheme>) -> Element {
-    ScrollView::new()
-        .expanded()
-        .child(settings_panel(palette, app_theme))
-        .into()
-}
-
-fn settings_panel(palette: Palette, app_theme: State<AppTheme>) -> Element {
-    let sampling_detail = format!(
-        "Network stats refresh every {} ms (edit preferences.json to change).",
-        preferences::get().normalized_poll_ms()
-    );
-    rect()
-        .vertical()
-        .width(Size::fill())
-        .background(palette.panel)
-        .corner_radius(12.)
-        .border(palette.border())
-        .padding(Gaps::new_all(12.))
-        .spacing(14.)
-        .child(about_settings_section(palette))
-        .child(settings_row("Sampling", &sampling_detail, palette))
-        .child(theme_picker_section(palette, app_theme))
-        .child(settings_row(
-            "Platform",
-            "Process and connection views require macOS nettop/lsof.",
-            palette,
-        ))
-        .into()
-}
-
-fn about_settings_section(palette: Palette) -> Element {
-    rect()
-        .vertical()
-        .spacing(8.)
-        .padding(Gaps::new(8., 0., 8., 0.))
-        .child(
-            label()
-                .text("About")
-                .font_size(14.)
-                .font_weight(FontWeight::BOLD)
-                .color(palette.title),
-        )
-        .child(
-            label()
-                .text("Tower Village splash, New Tower brand mark, version, and credits.")
-                .font_size(11.)
-                .color(palette.muted),
-        )
-        .child(
-            Button::new()
-                .on_press(|_| menubar::request_about_window())
-                .padding(Gaps::new(10., 16., 10., 16.))
-                .background(palette.accent)
-                .corner_radius(8.)
-                .child(
-                    label()
-                        .text("About Osman…")
-                        .font_size(13.)
-                        .font_weight(FontWeight::BOLD)
-                        .color(Color::from_rgb(255, 255, 255)),
-                ),
-        )
-        .into()
-}
-
 fn panel_shell(palette: Palette, body: impl IntoElement) -> Element {
     rect()
         .vertical()
@@ -1085,143 +1105,6 @@ fn clickable_data_row_shell(
         .spacing(8.)
         .children(children)
         .on_mouse_up(on_click)
-        .into()
-}
-
-fn settings_row(title: &str, detail: &str, palette: Palette) -> Element {
-    rect()
-        .vertical()
-        .spacing(4.)
-        .child(
-            label()
-                .text(title.to_string())
-                .font_size(13.)
-                .font_weight(FontWeight::BOLD)
-                .color(palette.text),
-        )
-        .child(
-            label()
-                .text(detail.to_string())
-                .font_size(11.)
-                .color(palette.muted),
-        )
-        .into()
-}
-
-fn theme_picker_section(palette: Palette, app_theme: State<AppTheme>) -> Element {
-    let active = *app_theme.read();
-    rect()
-        .vertical()
-        .spacing(8.)
-        .child(
-            label()
-                .text("Theme")
-                .font_size(13.)
-                .font_weight(FontWeight::BOLD)
-                .color(palette.text),
-        )
-        .child(
-            label()
-                .text("Receive, send, and total waveform colors plus surface tint.")
-                .font_size(11.)
-                .color(palette.muted),
-        )
-        .child(
-            rect()
-                .vertical()
-                .spacing(6.)
-                .children(
-                    AppTheme::ALL
-                        .iter()
-                        .map(|theme| theme_option(*theme, active, palette, app_theme))
-                        .collect::<Vec<_>>(),
-                ),
-        )
-        .into()
-}
-
-fn theme_option(
-    theme: AppTheme,
-    active: AppTheme,
-    palette: Palette,
-    mut app_theme: State<AppTheme>,
-) -> Element {
-    let preview = theme.palette();
-    let is_active = theme == active;
-    let bg = if is_active {
-        Color::from_argb(40, preview.receive.r(), preview.receive.g(), preview.receive.b())
-    } else {
-        palette.bg
-    };
-    let border = if is_active {
-        Border::new().fill(preview.accent).width(1.5)
-    } else {
-        palette.border()
-    };
-
-    rect()
-        .horizontal()
-        .width(Size::fill())
-        .padding(Gaps::new(8., 10., 8., 10.))
-        .background(bg)
-        .corner_radius(8.)
-        .border(border)
-        .spacing(10.)
-        .on_mouse_up(move |_| {
-            let _ = preferences::with_store(|store| store.set_theme(theme));
-            app_theme.set(theme);
-        })
-        .child(theme_swatches(preview))
-        .child(
-            rect()
-                .vertical()
-                .spacing(2.)
-                .child(
-                    label()
-                        .text(theme.label())
-                        .font_size(12.)
-                        .font_weight(if is_active {
-                            FontWeight::BOLD
-                        } else {
-                            FontWeight::NORMAL
-                        })
-                        .color(if is_active {
-                            palette.text
-                        } else {
-                            palette.muted
-                        }),
-                )
-                .child(
-                    label()
-                        .text(if is_active {
-                            "Active"
-                        } else {
-                            "Click to apply"
-                        })
-                        .font_size(10.)
-                        .color(palette.muted),
-                ),
-        )
-        .into()
-}
-
-fn theme_swatches(preview: Palette) -> Element {
-    rect()
-        .horizontal()
-        .spacing(4.)
-        .children(
-            [preview.receive, preview.send, preview.total]
-                .into_iter()
-                .map(|color| {
-                    rect()
-                        .width(Size::px(14.))
-                        .height(Size::px(14.))
-                        .corner_radius(7.)
-                        .background(color)
-                        .into()
-                })
-                .collect::<Vec<_>>(),
-        )
         .into()
 }
 

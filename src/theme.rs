@@ -8,15 +8,23 @@ pub enum AppTheme {
     SunriseMonitor,
     LabViolet,
     ForestScope,
+    CardinalScope,
+    PineMonitor,
+    SolarScope,
+    PrimarySignal,
 }
 
 impl AppTheme {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 9] = [
         Self::ClinicalSage,
         Self::OceanPulse,
         Self::SunriseMonitor,
         Self::LabViolet,
         Self::ForestScope,
+        Self::CardinalScope,
+        Self::PineMonitor,
+        Self::SolarScope,
+        Self::PrimarySignal,
     ];
 
     pub fn default_theme() -> Self {
@@ -30,6 +38,10 @@ impl AppTheme {
             Self::SunriseMonitor => "sunrise_monitor",
             Self::LabViolet => "lab_violet",
             Self::ForestScope => "forest_scope",
+            Self::CardinalScope => "cardinal_scope",
+            Self::PineMonitor => "pine_monitor",
+            Self::SolarScope => "solar_scope",
+            Self::PrimarySignal => "primary_signal",
         }
     }
 
@@ -40,6 +52,10 @@ impl AppTheme {
             Self::SunriseMonitor => "Sunrise Monitor",
             Self::LabViolet => "Lab Violet",
             Self::ForestScope => "Forest Scope",
+            Self::CardinalScope => "Cardinal Scope",
+            Self::PineMonitor => "Pine Monitor",
+            Self::SolarScope => "Solar Scope",
+            Self::PrimarySignal => "Primary Signal",
         }
     }
 
@@ -49,6 +65,10 @@ impl AppTheme {
             "sunrise_monitor" => Self::SunriseMonitor,
             "lab_violet" => Self::LabViolet,
             "forest_scope" => Self::ForestScope,
+            "cardinal_scope" => Self::CardinalScope,
+            "pine_monitor" => Self::PineMonitor,
+            "solar_scope" => Self::SolarScope,
+            "primary_signal" => Self::PrimarySignal,
             _ => Self::ClinicalSage,
         }
     }
@@ -60,6 +80,10 @@ impl AppTheme {
             Self::SunriseMonitor => Palette::sunrise_monitor(),
             Self::LabViolet => Palette::lab_violet(),
             Self::ForestScope => Palette::forest_scope(),
+            Self::CardinalScope => Palette::cardinal_scope(),
+            Self::PineMonitor => Palette::pine_monitor(),
+            Self::SolarScope => Palette::solar_scope(),
+            Self::PrimarySignal => Palette::primary_signal(),
         }
     }
 }
@@ -213,6 +237,86 @@ impl Palette {
         }
     }
 
+    /// Light rose surfaces — crimson accent and warm red send lane.
+    pub fn cardinal_scope() -> Self {
+        Self {
+            bg: Color::from_rgb(248, 236, 236),
+            panel: Color::from_rgb(252, 244, 244),
+            panel_edge: Color::from_argb(36, 72, 42, 44),
+            text: Color::from_rgb(72, 42, 44),
+            muted: Color::from_rgb(148, 118, 120),
+            title: Color::from_rgb(56, 28, 32),
+            receive: Color::from_rgb(72, 148, 118),
+            send: Color::from_rgb(196, 58, 64),
+            total: Color::from_rgb(148, 118, 120),
+            accent: Color::from_rgb(180, 40, 52),
+            bar_track: Color::from_argb(14, 72, 42, 44),
+            chart_fill: (252, 244, 244),
+            chart_grid: (228, 204, 204),
+            chart_label: (148, 118, 120),
+        }
+    }
+
+    /// Cool mint surfaces — hunter green accent and deep green receive.
+    pub fn pine_monitor() -> Self {
+        Self {
+            bg: Color::from_rgb(228, 236, 230),
+            panel: Color::from_rgb(240, 246, 242),
+            panel_edge: Color::from_argb(36, 32, 58, 42),
+            text: Color::from_rgb(32, 58, 42),
+            muted: Color::from_rgb(108, 132, 116),
+            title: Color::from_rgb(22, 48, 34),
+            receive: Color::from_rgb(34, 110, 68),
+            send: Color::from_rgb(196, 132, 52),
+            total: Color::from_rgb(108, 132, 116),
+            accent: Color::from_rgb(24, 88, 54),
+            bar_track: Color::from_argb(14, 32, 58, 42),
+            chart_fill: (240, 246, 242),
+            chart_grid: (196, 214, 200),
+            chart_label: (108, 132, 116),
+        }
+    }
+
+    /// Warm ivory surfaces — golden yellow accent and amber send.
+    pub fn solar_scope() -> Self {
+        Self {
+            bg: Color::from_rgb(252, 246, 228),
+            panel: Color::from_rgb(255, 251, 238),
+            panel_edge: Color::from_argb(36, 72, 58, 28),
+            text: Color::from_rgb(72, 58, 28),
+            muted: Color::from_rgb(156, 140, 104),
+            title: Color::from_rgb(56, 44, 20),
+            receive: Color::from_rgb(88, 156, 88),
+            send: Color::from_rgb(224, 156, 48),
+            total: Color::from_rgb(156, 140, 104),
+            accent: Color::from_rgb(218, 168, 32),
+            bar_track: Color::from_argb(14, 72, 58, 28),
+            chart_fill: (255, 251, 238),
+            chart_grid: (236, 224, 196),
+            chart_label: (156, 140, 104),
+        }
+    }
+
+    /// Neutral light base — receive green, send red, yellow accent (traffic-light lanes).
+    pub fn primary_signal() -> Self {
+        Self {
+            bg: Color::from_rgb(242, 242, 238),
+            panel: Color::from_rgb(250, 250, 246),
+            panel_edge: Color::from_argb(36, 52, 52, 48),
+            text: Color::from_rgb(52, 52, 48),
+            muted: Color::from_rgb(128, 128, 120),
+            title: Color::from_rgb(36, 36, 32),
+            receive: Color::from_rgb(34, 120, 62),
+            send: Color::from_rgb(196, 52, 52),
+            total: Color::from_rgb(128, 128, 120),
+            accent: Color::from_rgb(228, 184, 32),
+            bar_track: Color::from_argb(14, 52, 52, 48),
+            chart_fill: (250, 250, 246),
+            chart_grid: (216, 216, 208),
+            chart_label: (128, 128, 120),
+        }
+    }
+
     pub fn border(self) -> Border {
         Border::new().fill(self.panel_edge).width(1.0)
     }
@@ -268,6 +372,41 @@ mod tests {
             AppTheme::ClinicalSage,
             "unknown ids fall back to default"
         );
+    }
+
+    #[test]
+    fn all_themes_have_distinct_accents() {
+        let accents: Vec<_> = AppTheme::ALL.iter().map(|t| t.palette().accent).collect();
+        for (i, a) in accents.iter().enumerate() {
+            for (j, b) in accents.iter().enumerate() {
+                if i != j {
+                    assert_ne!(
+                        (a.r(), a.g(), a.b()),
+                        (b.r(), b.g(), b.b()),
+                        "themes {i} and {j} share the same accent"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn new_color_themes_use_requested_hues() {
+        let cardinal = AppTheme::CardinalScope.palette();
+        assert!(cardinal.accent.r() > cardinal.accent.g());
+        assert!(cardinal.accent.r() > cardinal.accent.b());
+
+        let pine = AppTheme::PineMonitor.palette();
+        assert!(pine.accent.g() > pine.accent.r());
+        assert!(pine.accent.g() > pine.accent.b());
+
+        let solar = AppTheme::SolarScope.palette();
+        assert!(solar.accent.r() > 180 && solar.accent.g() > 140);
+
+        let primary = AppTheme::PrimarySignal.palette();
+        assert!(primary.receive.g() > primary.receive.r());
+        assert!(primary.send.r() > primary.send.g());
+        assert!(primary.accent.g() > 140 && primary.accent.r() > 180);
     }
 }
 

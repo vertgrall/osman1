@@ -72,13 +72,23 @@ mod tests {
     }
 
     #[test]
-    fn main_routes_about_through_request_about_window() {
-        let main_rs = read_src("src/main.rs");
+    fn settings_routes_about_through_request_about_window() {
+        let settings_rs = read_src("src/settings.rs");
         assert_required(
-            &main_rs,
+            &settings_rs,
             "menubar::request_about_window()",
             "Settings About button must launch the About window",
         );
+        assert_forbidden(
+            &settings_rs,
+            ".child(about_content(palette))",
+            "Settings must not embed the full About panel (clip/blank regressions)",
+        );
+    }
+
+    #[test]
+    fn main_routes_about_through_request_about_window() {
+        let main_rs = read_src("src/main.rs");
         assert_required(
             &main_rs,
             "about_assets::preload()",

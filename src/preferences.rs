@@ -159,6 +159,21 @@ impl PreferencesStore {
         self.save()
     }
 
+    pub fn set_poll_interval_ms(&mut self, ms: u64) -> io::Result<()> {
+        self.prefs.poll_interval_ms = normalize_poll_ms(ms);
+        self.save()
+    }
+
+    pub fn set_default_section(&mut self, section: &str) -> io::Result<()> {
+        self.prefs.default_section = section.into();
+        self.save()
+    }
+
+    pub fn set_menubar_only(&mut self, enabled: bool) -> io::Result<()> {
+        self.prefs.menubar_only = enabled;
+        self.save()
+    }
+
     fn migrate_legacy_onboarding_flag(&mut self) -> bool {
         if self.prefs.onboarding_done {
             let _ = fs::remove_file(&self.legacy_flag_path);
@@ -285,5 +300,21 @@ mod tests {
         assert_eq!(normalize_poll_ms(100), 500);
         assert_eq!(normalize_poll_ms(900), 1000);
         assert_eq!(normalize_poll_ms(5000), 2000);
+    }
+
+    #[test]
+    fn store_setters_persist() {
+        let (mut store, path, _) = temp_store();
+        store.set_poll_interval_ms(500).expect("poll");
+        store.set_default_section("processes").expect("section");
+        store.set_menubar_only(true).expect("menubar");
+        store.set_theme(AppTheme::SolarScope).expect("theme");
+
+        let loaded = PreferencesStore::load_at(path, std::env::temp_dir().join("unused"));
+        assert_eq!(loaded.prefs.poll_interval_ms, 500);
+        assert_eq!(loaded.prefs.default_section, "processes");
+        assert!(loaded.prefs.menubar_only);
+        assert_eq!(loaded.prefs.app_theme(), AppTheme::SolarScope);
+        let _ = fs::remove_dir_all(store.path.parent().unwrap());
     }
 }
